@@ -103,16 +103,24 @@ class PaperTrade:
     timestamp: datetime
     direction: str
     size_usd: float
-    price: float
+    price: float                          # mid / decision price at minute 13 (Polymarket YES prob)
     signal_score: float
     signal_confidence: float
     outcome: str = "PENDING"
-    # Resolution fields — populated when the market closes
+    # Realistic-fill fields — what you'd ACTUALLY transact at (cross the spread)
+    fill_price: Optional[float] = None    # ask for LONG, bid for SHORT; P&L is computed on this
+    half_spread: Optional[float] = None   # (ask - bid) / 2 paid at entry
+    # Market identity — needed to fetch the ACTUAL Polymarket settled outcome
+    slug: Optional[str] = None
+    condition_id: Optional[str] = None
+    yes_token_id: Optional[str] = None
+    # Resolution fields — populated when the market settles
     trade_id: Optional[str] = None
     entry_btc_spot: Optional[float] = None
     resolution_time: Optional[datetime] = None
     exit_btc_spot: Optional[float] = None
-    exit_price: Optional[float] = None   # 1.0 or 0.0 — binary outcome
+    exit_price: Optional[float] = None    # 1.0 or 0.0 — binary outcome
+    resolution_source: Optional[str] = None  # "gamma_actual" once settled via Gamma
     pnl: Optional[float] = None
     fee: Optional[float] = None
 
@@ -125,14 +133,48 @@ class PaperTrade:
             'signal_score': self.signal_score,
             'signal_confidence': self.signal_confidence,
             'outcome': self.outcome,
+            'fill_price': self.fill_price,
+            'half_spread': self.half_spread,
+            'slug': self.slug,
+            'condition_id': self.condition_id,
+            'yes_token_id': self.yes_token_id,
             'trade_id': self.trade_id,
             'entry_btc_spot': self.entry_btc_spot,
             'resolution_time': self.resolution_time.isoformat() if self.resolution_time else None,
             'exit_btc_spot': self.exit_btc_spot,
             'exit_price': self.exit_price,
+            'resolution_source': self.resolution_source,
             'pnl': self.pnl,
             'fee': self.fee,
         }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "PaperTrade":
+        """Rebuild a PaperTrade from persisted JSON (for crash-recovery reload)."""
+        def _dt(v):
+            return datetime.fromisoformat(v) if v else None
+        return cls(
+            timestamp=_dt(d.get('timestamp')) or datetime.now(timezone.utc),
+            direction=d.get('direction', ''),
+            size_usd=float(d.get('size_usd', 0.0)),
+            price=float(d.get('price', 0.0)),
+            signal_score=d.get('signal_score', 0.0),
+            signal_confidence=d.get('signal_confidence', 0.0),
+            outcome=d.get('outcome', 'PENDING'),
+            fill_price=d.get('fill_price'),
+            half_spread=d.get('half_spread'),
+            slug=d.get('slug'),
+            condition_id=d.get('condition_id'),
+            yes_token_id=d.get('yes_token_id'),
+            trade_id=d.get('trade_id'),
+            entry_btc_spot=d.get('entry_btc_spot'),
+            resolution_time=_dt(d.get('resolution_time')),
+            exit_btc_spot=d.get('exit_btc_spot'),
+            exit_price=d.get('exit_price'),
+            resolution_source=d.get('resolution_source'),
+            pnl=d.get('pnl'),
+            fee=d.get('fee'),
+        )
 
 
 def init_redis():
@@ -259,6 +301,8 @@ class IntegratedBTCStrategy(Strategy):
         # Pending paper trades awaiting 15-min market resolution.
         # Resolved by _resolve_pending_paper_trades() in the timer loop.
         self._pending_paper_trades: List[PaperTrade] = []
+        # Crash recovery: reload any prior paper trades and re-queue PENDING ones.
+        self._load_paper_trades()
 
         self.test_mode = test_mode
 
@@ -1022,6 +1066,10 @@ class IntegratedBTCStrategy(Strategy):
         and is settled by _resolve_pending_paper_trades when the market closes —
         using the actual BTC spot direction from Coinbase, not RNG.
         """
+        # SAFETY INVARIANT: this is the simulation-only path. The caller reaches it
+        # exclusively via `if is_simulation:` and the bot defaults to simulation
+        # (only `--live` flips it). This method records to paper_trades.json and must
+        # NEVER call the order-placement path. Do not add live order submission here.
         entry_btc_spot = metadata.get("spot_price") if metadata else None
         if entry_btc_spot is None:
             logger.warning(
@@ -1042,14 +1090,50 @@ class IntegratedBTCStrategy(Strategy):
 
         trade_id = f"paper_{int(datetime.now(timezone.utc).timestamp())}"
 
+        # --- Realistic fill: you cannot transact at the mid. A YES buyer (LONG)
+        # crosses to the ASK; a NO buyer (SHORT) enters at the BID. Use the REAL
+        # live book cached on the last quote tick — this is the ground truth the
+        # backtester could only approximate with a half-spread haircut.
+        mid = float(current_price)
+        DEFAULT_HALF_SPREAD = 0.01  # fallback only if no live book is cached
+        bid_ask = getattr(self, "_last_bid_ask", None)
+        if bid_ask and bid_ask[0] is not None and bid_ask[1] is not None:
+            bid_f, ask_f = float(bid_ask[0]), float(bid_ask[1])
+            if ask_f > bid_f:
+                half_spread = (ask_f - bid_f) / 2.0
+                fill_price = ask_f if direction == "long" else bid_f
+            else:  # degenerate/crossed book — fall back to a symmetric haircut
+                half_spread = DEFAULT_HALF_SPREAD
+                fill_price = mid + half_spread if direction == "long" else mid - half_spread
+        else:
+            half_spread = DEFAULT_HALF_SPREAD
+            fill_price = mid + half_spread if direction == "long" else mid - half_spread
+        fill_price = min(0.9999, max(0.0001, fill_price))  # keep p strictly in (0,1)
+
+        # Market identity for ACTUAL Polymarket resolution (resolved via Gamma by slug).
+        cur_slug = None
+        cur_condition_id = None
+        try:
+            cur = self.all_btc_instruments[self.current_instrument_index]
+            cur_slug = cur.get("slug")
+            cur_condition_id = cur.get("condition_id")
+        except (AttributeError, IndexError, TypeError):
+            pass
+        cur_yes_token = (metadata.get("yes_token_id") if metadata else None) or getattr(self, "_yes_token_id", None)
+
         paper_trade = PaperTrade(
             timestamp=datetime.now(timezone.utc),
             direction=direction.upper(),
             size_usd=float(position_size),
-            price=float(current_price),
+            price=mid,
             signal_score=signal.score,
             signal_confidence=signal.confidence,
             outcome="PENDING",
+            fill_price=fill_price,
+            half_spread=half_spread,
+            slug=cur_slug,
+            condition_id=cur_condition_id,
+            yes_token_id=cur_yes_token,
             trade_id=trade_id,
             entry_btc_spot=float(entry_btc_spot),
             resolution_time=resolution_time,
@@ -1062,7 +1146,8 @@ class IntegratedBTCStrategy(Strategy):
         logger.info(f"  Trade ID: {trade_id}")
         logger.info(f"  Direction: {direction.upper()} ({'YES' if direction == 'long' else 'NO'} token)")
         logger.info(f"  Size: ${float(position_size):.2f}")
-        logger.info(f"  Entry Polymarket Price: ${float(current_price):,.4f}")
+        logger.info(f"  Entry mid: ${mid:,.4f} | FILL (crossed): ${fill_price:,.4f} | half-spread paid: ${half_spread:.4f}")
+        logger.info(f"  Market slug: {cur_slug or 'UNKNOWN (resolution will be unavailable!)'}")
         logger.info(f"  Entry BTC Spot: ${float(entry_btc_spot):,.2f}")
         logger.info(f"  Resolves at: {resolution_time.strftime('%H:%M:%S')} UTC")
         logger.info(f"  Pending queue size: {len(self._pending_paper_trades)}")
@@ -1071,18 +1156,26 @@ class IntegratedBTCStrategy(Strategy):
         self._save_paper_trades()
 
     async def _resolve_pending_paper_trades(self):
-        """Settle any pending paper trades whose resolution time has arrived.
+        """Settle pending paper trades using the ACTUAL Polymarket settled outcome.
 
-        Resolution mechanism:
-          1. Fetch current Coinbase BTC spot at resolution_time.
-          2. yes_won = (exit_btc > entry_btc). If equal, treat as YES win (Polymarket convention).
-          3. Compute binary payout from entry probability and direction:
-               long  + yes_won  → payout = size * (1 - p) / p     [bought YES at p, resolved $1]
-               long  + !yes_won → payout = -size                   [bought YES at p, resolved $0]
-               short + !yes_won → payout = size * p / (1 - p)      [bought NO at 1-p, resolved $1]
-               short + yes_won  → payout = -size                   [bought NO at 1-p, resolved $0]
-          4. Fee approx: size * 4·p·(1-p)·POLYMARKET_FEE_PEAK
+        Resolution mechanism (forward paper-trading harness):
+          1. A trade is "due" once its market's close time has passed.
+          2. Query Polymarket Gamma for the market's settled outcome by slug
+             (paper_resolution.fetch_market_resolution). Returns yes_won, or None
+             if the market has not settled yet (UMA lag) / fetch failed — in which
+             case we leave the trade PENDING and retry on the next timer tick. None
+             is NEVER treated as a loss.
+          3. P&L is computed on the REALISTIC fill price recorded at entry (the
+             spread-crossed price), not the mid:
+               long  + yes_won  → payout = size * (1 - f) / f   [bought YES at fill f]
+               long  + !yes_won → payout = -size
+               short + !yes_won → payout = size * f / (1 - f)   [bought NO; YES-equiv fill f]
+               short + yes_won  → payout = -size
+          4. Fee approx: size * 4·f·(1-f)·POLYMARKET_FEE_PEAK
           5. P&L = payout - fee
+
+        Gamma resolves any closed market retroactively, so trades stuck PENDING
+        across a restart settle correctly once reloaded.
         """
         if not self._pending_paper_trades:
             return
@@ -1092,64 +1185,58 @@ class IntegratedBTCStrategy(Strategy):
         if not due:
             return
 
-        # Fetch BTC spot once for all due trades (they'd all use the same near-simultaneous price)
-        exit_btc = None
-        try:
-            from data_sources.coinbase.adapter import CoinbaseDataSource
-            coinbase = CoinbaseDataSource()
-            await coinbase.connect()
-            spot = await coinbase.get_current_price()
-            await coinbase.disconnect()
-            if spot:
-                exit_btc = float(spot)
-        except Exception as e:
-            logger.warning(f"Resolver: Coinbase fetch failed ({e}) — will retry next tick")
-            return
+        from paper_resolution import fetch_market_resolution
 
-        if exit_btc is None:
-            logger.warning("Resolver: Coinbase returned no price — will retry next tick")
-            return
-
+        resolved_now = []
         for trade in due:
-            p = trade.price                # Polymarket YES probability at entry
+            if not trade.slug:
+                logger.warning(
+                    f"Resolver: paper trade {trade.trade_id} has no market slug — "
+                    f"cannot fetch its actual Polymarket outcome. Leaving PENDING."
+                )
+                continue
+
+            yes_won = fetch_market_resolution(trade.slug)
+            if yes_won is None:
+                # Not settled on-chain yet (UMA lag) or transient fetch failure — retry next tick.
+                logger.debug(f"Resolver: {trade.slug} not resolved on Gamma yet; will retry.")
+                continue
+
+            f = trade.fill_price if trade.fill_price is not None else trade.price
             size = trade.size_usd
-            entry_btc = trade.entry_btc_spot
             direction = trade.direction.lower()
 
-            yes_won = exit_btc >= entry_btc
-
             if direction == "long":
-                payout = size * (1.0 - p) / p if yes_won else -size
-            else:  # short → bought NO at price (1-p)
-                payout = size * p / (1.0 - p) if (not yes_won) else -size
+                payout = size * (1.0 - f) / f if yes_won else -size
+            else:  # short → bought NO; YES-equivalent entry price is the fill f
+                payout = size * f / (1.0 - f) if (not yes_won) else -size
 
-            fee = size * 4.0 * p * (1.0 - p) * POLYMARKET_FEE_PEAK
+            fee = size * 4.0 * f * (1.0 - f) * POLYMARKET_FEE_PEAK
             pnl = payout - fee
 
-            trade.exit_btc_spot = exit_btc
             trade.exit_price = 1.0 if yes_won else 0.0
+            trade.resolution_source = "gamma_actual"
             trade.pnl = pnl
             trade.fee = fee
             trade.outcome = "WIN" if pnl > 0 else "LOSS"
+            resolved_now.append(trade)
 
             logger.info("=" * 80)
-            logger.info("[SIMULATION] PAPER TRADE RESOLVED")
-            logger.info(f"  Trade ID: {trade.trade_id}")
+            logger.info("[SIMULATION] PAPER TRADE RESOLVED — actual Polymarket outcome")
+            logger.info(f"  Trade ID: {trade.trade_id} | slug: {trade.slug}")
             logger.info(f"  Direction: {trade.direction} ({'YES' if direction == 'long' else 'NO'})")
-            logger.info(f"  Entry: Polymarket ${p:,.4f} | BTC ${entry_btc:,.2f}")
-            logger.info(f"  Exit:  Polymarket ${trade.exit_price:.2f} | BTC ${exit_btc:,.2f}")
-            logger.info(f"  BTC moved: {(exit_btc - entry_btc):+,.2f} → {'YES won' if yes_won else 'NO won'}")
+            logger.info(f"  Fill: ${f:,.4f} (mid ${trade.price:,.4f}, half-spread ${trade.half_spread or 0.0:.4f})")
+            logger.info(f"  Settled: {'YES won' if yes_won else 'NO won'} (Gamma outcomePrices)")
             logger.info(f"  Gross payout: ${payout:+.4f}")
             logger.info(f"  Fee (≈{(fee/size)*100:.2f}%): ${fee:.4f}")
-            logger.info(f"  Net P&L: ${pnl:+.4f}")
-            logger.info(f"  Outcome: {trade.outcome}")
+            logger.info(f"  Net P&L: ${pnl:+.4f} → {trade.outcome}")
             logger.info("=" * 80)
 
             try:
                 self.performance_tracker.record_trade(
                     trade_id=trade.trade_id,
                     direction=direction,
-                    entry_price=Decimal(str(p)),
+                    entry_price=Decimal(str(f)),
                     exit_price=Decimal(str(trade.exit_price)),
                     size=Decimal(str(size)),
                     entry_time=trade.timestamp,
@@ -1158,8 +1245,9 @@ class IntegratedBTCStrategy(Strategy):
                     signal_confidence=trade.signal_confidence,
                     metadata={
                         "simulated": True,
-                        "entry_btc_spot": entry_btc,
-                        "exit_btc_spot": exit_btc,
+                        "fill_price": f,
+                        "half_spread": trade.half_spread,
+                        "resolution_source": "gamma_actual",
                         "fee": fee,
                         "pnl": pnl,
                     },
@@ -1175,21 +1263,53 @@ class IntegratedBTCStrategy(Strategy):
                 except Exception as e:
                     logger.debug(f"grafana update failed: {e}")
 
-        # Remove resolved trades from pending
-        self._pending_paper_trades = [
-            t for t in self._pending_paper_trades if t not in due
-        ]
-
-        self._save_paper_trades()
+        # Remove only the trades that actually resolved; None-results stay PENDING.
+        if resolved_now:
+            self._pending_paper_trades = [
+                t for t in self._pending_paper_trades if t not in resolved_now
+            ]
+            self._save_paper_trades()
 
     def _save_paper_trades(self):
-        import json
+        """Persist atomically: write a temp file then os.replace (atomic rename),
+        so a crash mid-write can never corrupt paper_trades.json."""
+        import json, os, tempfile
         try:
             trades_data = [t.to_dict() for t in self.paper_trades]
-            with open('paper_trades.json', 'w') as f:
-                json.dump(trades_data, f, indent=2)
+            d = os.path.dirname(os.path.abspath('paper_trades.json')) or '.'
+            fd, tmp = tempfile.mkstemp(dir=d, prefix='.paper_trades.', suffix='.tmp')
+            try:
+                with os.fdopen(fd, 'w') as f:
+                    json.dump(trades_data, f, indent=2)
+                os.replace(tmp, 'paper_trades.json')
+            finally:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
         except Exception as e:
             logger.error(f"Failed to save paper trades: {e}")
+
+    def _load_paper_trades(self):
+        """Reload persisted paper trades on startup (crash recovery). PENDING trades
+        are re-queued so the resolver settles them via Gamma once they've closed —
+        a multi-day paper run survives restarts without losing or stranding trades."""
+        import json, os
+        if not os.path.exists('paper_trades.json'):
+            return
+        try:
+            with open('paper_trades.json') as f:
+                data = json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load paper_trades.json on startup: {e}")
+            return
+        try:
+            self.paper_trades = [PaperTrade.from_dict(d) for d in data]
+            self._pending_paper_trades = [t for t in self.paper_trades if t.outcome == "PENDING"]
+            logger.info(
+                f"[recovery] Reloaded {len(self.paper_trades)} paper trades "
+                f"({len(self._pending_paper_trades)} still PENDING — will resolve via Gamma)."
+            )
+        except Exception as e:
+            logger.error(f"Failed to rebuild paper trades from file: {e}")
 
     # ------------------------------------------------------------------
     # Real order (unchanged)
