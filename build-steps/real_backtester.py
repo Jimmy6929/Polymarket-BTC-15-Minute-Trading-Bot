@@ -47,6 +47,47 @@ TREND_UP = 0.60
 TREND_DOWN = 0.40
 PRICE_HISTORY_MAX = 100
 
+# --- Realistic fill model (human-calibrated; agents may not touch this file) ---
+# Entry decisions are made on the mid (entry_p), but you cannot transact at the
+# mid: a buyer crosses to the ask, a seller to the bid. The market record carries
+# only a single best_bid/best_ask SNAPSHOT (not the price at the minute-13 entry
+# tick), so we use its SPREAD WIDTH as an adverse haircut around the entry mid
+# rather than its absolute level. Falls back to DEFAULT_HALF_SPREAD when the book
+# snapshot is missing or degenerate.
+USE_BOOK_SPREAD = True        # use the market's best_ask-best_bid width when available
+DEFAULT_HALF_SPREAD = 0.01    # fallback half-spread (price points) when book is missing
+EXTRA_SLIPPAGE = 0.0          # additional adverse slippage (price points) on top of half-spread
+# Clamp only to keep p strictly inside (0,1) for the payout division. Kept very
+# close to the boundary so the clamp can never turn an adverse fill favorable for
+# high-priced LONGs / low-priced SHORTs (a fixed 0.99/0.01 cap did exactly that).
+FILL_PRICE_FLOOR = 0.0001
+FILL_PRICE_CEIL = 0.9999
+
+
+def realistic_fill_price(direction: str, mid: float, market: Dict[str, Any]) -> float:
+    """Adverse fill price: cross half the spread (plus slippage) against the taker.
+
+    LONG (buy YES)  -> pay UP   (mid + half_spread)
+    SHORT (take NO) -> enter at the bid side (mid - half_spread)
+
+    The fixed-risk payout formula is hurt by a higher p for LONG and a lower p for
+    SHORT, so both directions are penalised. Width comes from the book snapshot when
+    usable, else DEFAULT_HALF_SPREAD.
+    """
+    half_spread = DEFAULT_HALF_SPREAD
+    if USE_BOOK_SPREAD:
+        bb = market.get("best_bid")
+        ba = market.get("best_ask")
+        if bb and ba and ba > bb:
+            half_spread = (ba - bb) / 2.0
+        else:
+            sp = market.get("spread")
+            if sp and sp > 0:
+                half_spread = sp / 2.0
+    haircut = half_spread + EXTRA_SLIPPAGE
+    fill = mid + haircut if direction == "LONG" else mid - haircut
+    return min(FILL_PRICE_CEIL, max(FILL_PRICE_FLOOR, fill))
+
 
 @dataclass
 class TradeRecord:
@@ -54,7 +95,8 @@ class TradeRecord:
     market_id: str
     entry_ts: int
     direction: str            # LONG (YES) or SHORT (NO)
-    entry_price: float
+    entry_price: float        # mid / decision price (unchanged — cluster filters key on this)
+    fill_price: float         # realistic fill after crossing the spread (pnl computed on this)
     entry_btc_spot: float
     final_btc_price: float
     btc_price_to_beat: float
@@ -280,7 +322,9 @@ class RealDataBacktester:
 
         yes_won = bool(market["yes_won"])
         size = 1.0
-        p = entry_p
+        # Decision was made on the mid (entry_p); execution crosses the spread.
+        fill_p = realistic_fill_price(direction, entry_p, market)
+        p = fill_p
         if direction == "LONG":
             payout = size * (1.0 - p) / p if yes_won else -size
         else:
@@ -296,6 +340,7 @@ class RealDataBacktester:
             entry_ts=entry_ts,
             direction=direction,
             entry_price=entry_p,
+            fill_price=fill_p,
             entry_btc_spot=entry_btc,
             final_btc_price=market.get("final_btc_price") or 0.0,
             btc_price_to_beat=market.get("btc_price_to_beat") or 0.0,
@@ -408,12 +453,12 @@ class RealDataBacktester:
         out_csv.parent.mkdir(parents=True, exist_ok=True)
         with out_csv.open("w", newline="") as f:
             w = csv.writer(f)
-            w.writerow(["slug", "market_id", "entry_ts", "direction", "entry_price",
+            w.writerow(["slug", "market_id", "entry_ts", "direction", "entry_price", "fill_price",
                         "entry_btc_spot", "final_btc_price", "btc_price_to_beat", "yes_won",
                         "fee_rate", "payout", "fee", "pnl", "outcome",
                         "signal_score", "signal_confidence", "signal_count", "fee_regime"])
             for t in self.trades:
-                w.writerow([t.slug, t.market_id, t.entry_ts, t.direction, t.entry_price,
+                w.writerow([t.slug, t.market_id, t.entry_ts, t.direction, t.entry_price, t.fill_price,
                             t.entry_btc_spot, t.final_btc_price, t.btc_price_to_beat, t.yes_won,
                             t.fee_rate, t.payout, t.fee, t.pnl, t.outcome,
                             t.signal_score, t.signal_confidence, t.signal_count, t.fee_regime])

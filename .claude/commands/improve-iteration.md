@@ -1,10 +1,12 @@
 ---
-description: Run one iteration of the self-improvement loop. Sequentially invokes reviewer → researcher → implementer → tester → statistician → decider. Stops early if any agent emits a halt signal. Intended to be invoked under /loop for autonomous operation.
+description: Run one iteration of the self-improvement loop. Regenerates the full-history backtest, then sequentially invokes reviewer → researcher → implementer → tester → evaluator → decider. IN-SAMPLE ONLY (no holdout) — accepted changes are candidates pending live validation. Stops early if any agent emits a halt signal. Intended to be invoked under /loop for autonomous operation.
 allowed-tools: Bash, Read, Agent
 argument-hint: "(no arguments)"
 ---
 
-You are the **orchestrator** for one iteration of the autonomous self-improvement loop on the Polymarket BTC 15-min trading bot. You delegate every substantive decision to a specialised subagent. You do not formulate hypotheses, you do not write code, you do not run the backtester, you do not commit. You shepherd state.
+You are the **orchestrator** for one iteration of the autonomous self-improvement loop on the Polymarket BTC 15-min trading bot. You delegate every substantive decision to a specialised subagent. You do not formulate hypotheses, you do not write code, you do not commit. You shepherd state.
+
+**This loop is IN-SAMPLE ONLY.** There is no holdout split; the Reviewer analyses all 6 months and the evaluation runs on the same full history. An "accept" therefore means **candidate pending live validation**, never "validated" or "profitable." The only true out-of-sample test is forward paper-trading on Polymarket (out of this loop's scope). The one backtester run you perform yourself (Step 2.5) is a deterministic baseline regeneration; you still never run ad-hoc backtests beyond that.
 
 # Step 0 — Honour the stop signal
 
@@ -34,6 +36,16 @@ git tag "exp-${NNN}-pre" 2>/dev/null || git tag -f "exp-${NNN}-pre"
 ```
 
 Use `-f` if the tag already exists (e.g. you're rerunning a stuck iteration manually).
+
+# Step 2.5 — Regenerate the Reviewer's full-history backtest
+
+Refresh `backtest_trades.csv` so the Reviewer always post-mortems the **current** strategy (the working tree is clean here — the previous Decider either committed an accept or reset to baseline), over all 6 months:
+
+```bash
+venv/bin/python build-steps/real_backtester.py --split both --out build-steps/data/backtest_trades.csv
+```
+
+This is the ONE backtester invocation the orchestrator performs. It is deterministic and unconditional every iteration (~47s; negligible vs the agents). If it exits non-zero, append a `crashed` row (stage_failed `regen`) and exit — do NOT run the Reviewer on a stale file.
 
 # Step 3 — Invoke the six agents in sequence
 
@@ -89,27 +101,29 @@ After it returns:
 ```
 Agent({
   subagent_type: "tester",
-  description: "Iteration NNN: run train backtest and compute stats",
-  prompt: "Run as the tester for iteration {NNN}. Execute the backtester on --split train, write {NNN}_train_summary.json."
+  description: "Iteration NNN: run full-history backtest and compute in-sample stats",
+  prompt: "Run as the tester for iteration {NNN}. Execute the backtester on --split both (full 6 months), write {NNN}_insample_summary.json."
 })
 ```
 
 After it returns:
-- If `{NNN}_train_summary.json` is missing → log crash row, exit.
+- If `{NNN}_insample_summary.json` is missing → log crash row, exit.
 - If summary `status == "crashed"` → skip to **Step 4** with verdict `crashed`. Do NOT revert (the Decider will leave git alone so we can diagnose).
 
-## 3e. Statistician
+## 3e. Evaluator (in-sample)
+
+The `statistician` subagent has been repurposed as the **in-sample evaluator** — there is no holdout. It reads the Tester's full-history summary plus `.claude/state/baseline.json`, applies the in-sample lift + deflated-Sharpe gate, and emits a verdict.
 
 ```
 Agent({
   subagent_type: "statistician",
-  description: "Iteration NNN: decide whether to validate on holdout and compute DSR",
-  prompt: "Run as the statistician for iteration {NNN}. Read {NNN}_train_summary.json and the experiments log. Decide whether to touch holdout per your rules; if yes, run it once and update holdout_lock.json. Write {NNN}_holdout_summary.json."
+  description: "Iteration NNN: in-sample evaluation (no holdout) + DSR deflation",
+  prompt: "Run as the in-sample evaluator for iteration {NNN}. Read {NNN}_insample_summary.json, .claude/state/baseline.json, and the experiments log. Apply your in-sample verdict rules (NO holdout, NO --split holdout). Write {NNN}_eval_summary.json."
 })
 ```
 
 After it returns:
-- If `{NNN}_holdout_summary.json` is missing → log crash row, exit.
+- If `{NNN}_eval_summary.json` is missing → log crash row, exit.
 
 ## 3f. Decider
 
@@ -147,16 +161,16 @@ If you exit early (any agent's expected output missing), you must still leave th
 
 1. Append a minimal row to `experiments.jsonl`:
    ```json
-   {"iter": NNN, "ts_utc": "<now>", "verdict": "crashed_orchestrator", "stage_failed": "<reviewer|researcher|implementer|tester|statistician|decider>", "git_action": "none"}
+   {"iter": NNN, "ts_utc": "<now>", "verdict": "crashed_orchestrator", "stage_failed": "<regen|reviewer|researcher|implementer|tester|evaluator|decider>", "git_action": "none"}
    ```
 2. Do NOT update `loop_status`. The loop will keep trying — a transient failure should not auto-halt.
 3. Print: `EXP-${NNN} crashed_orchestrator stage=<...>`.
 
 # Constraints
 
-- You **never** invoke the backtester directly. The Tester does that on train; the Statistician does that on holdout (once).
+- The **only** backtester run you perform is the deterministic Step 2.5 baseline regeneration (`--split both` → `backtest_trades.csv`). You never run any other backtest. The Tester runs the post-change full backtest; there is no holdout run anymore.
 - You **never** edit code. Only the Implementer does.
-- You **never** modify `experiments.jsonl`, `holdout_lock.json`, or `loop_status` directly. Only the Decider modifies the first and last; only the Statistician modifies the lock.
+- You **never** modify `experiments.jsonl` or `loop_status` directly. Only the Decider modifies them. (`holdout_lock.json` is obsolete — the loop no longer uses a holdout.)
 - You **never** run `git commit`, `git reset`, or `git tag` other than the single `exp-{NNN}-pre` tag in Step 2. Decider handles all other git operations.
 
 # Done
