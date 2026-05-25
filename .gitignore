@@ -142,9 +142,15 @@ node_modules/
 # =============================================================================
 # SELF-IMPROVEMENT LOOP — per-iteration transient state
 # =============================================================================
-# Keep .claude/state/{experiments.jsonl,holdout_lock.json,loop_status}
-# tracked (durable history). Only the per-iteration scratch and the
-# per-run backtest CSVs are transient.
+# experiments.jsonl / holdout_lock.json / loop_status are UNTRACKED on purpose.
+# The decider runs `git reset --hard exp-NNN-pre` on reject verdicts; if these
+# were tracked, that reset would revert them — wiping the just-appended log row
+# and resetting the holdout lock. Keeping them out of git makes them durable
+# ACROSS resets (which is their whole job). They live on disk; back them up
+# separately if you want version history.
+.claude/state/experiments.jsonl
+.claude/state/holdout_lock.json
+.claude/state/loop_status
 .claude/state/iteration_scratch/*
 !.claude/state/iteration_scratch/.gitkeep
 build-steps/data/runs/*
