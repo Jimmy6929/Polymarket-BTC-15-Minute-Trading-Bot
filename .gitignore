@@ -138,3 +138,14 @@ $RECYCLE.BIN/
 *.swo
 node_modules/
 .cache/
+
+# =============================================================================
+# SELF-IMPROVEMENT LOOP — per-iteration transient state
+# =============================================================================
+# Keep .claude/state/{experiments.jsonl,holdout_lock.json,loop_status}
+# tracked (durable history). Only the per-iteration scratch and the
+# per-run backtest CSVs are transient.
+.claude/state/iteration_scratch/*
+!.claude/state/iteration_scratch/.gitkeep
+build-steps/data/runs/*
+!build-steps/data/runs/.gitkeep

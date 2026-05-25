@@ -85,10 +85,21 @@ QUOTE_STABILITY_REQUIRED = 3      # Need only 3 valid ticks to be stable (faster
 QUOTE_MIN_SPREAD = 0.001          # Both bid AND ask must be at least this
 MARKET_INTERVAL_SECONDS = 900     # 15-minute markets
 
+# Polymarket taker fee approximation. Real schedule peaks ~1.56% at p=0.50 and
+# tapers toward 0% at extremes. Modeled as 4·p·(1-p)·peak — exact at p=0.5,
+# matches the qualitative shape elsewhere. Source: Polymarket Q4-2025 fee curve.
+POLYMARKET_FEE_PEAK = 0.0156
+
 
 @dataclass
 class PaperTrade:
-    """Track paper/simulation trades"""
+    """Track paper/simulation trades.
+
+    A trade starts in PENDING state at entry. The resolver settles it when
+    the 15-min market closes by comparing entry vs exit Coinbase BTC spot —
+    no RNG, no fabricated movement. Win/loss flows from real BTC direction;
+    P&L from the binary payout formula minus the Polymarket fee approximation.
+    """
     timestamp: datetime
     direction: str
     size_usd: float
@@ -96,6 +107,14 @@ class PaperTrade:
     signal_score: float
     signal_confidence: float
     outcome: str = "PENDING"
+    # Resolution fields — populated when the market closes
+    trade_id: Optional[str] = None
+    entry_btc_spot: Optional[float] = None
+    resolution_time: Optional[datetime] = None
+    exit_btc_spot: Optional[float] = None
+    exit_price: Optional[float] = None   # 1.0 or 0.0 — binary outcome
+    pnl: Optional[float] = None
+    fee: Optional[float] = None
 
     def to_dict(self):
         return {
@@ -106,6 +125,13 @@ class PaperTrade:
             'signal_score': self.signal_score,
             'signal_confidence': self.signal_confidence,
             'outcome': self.outcome,
+            'trade_id': self.trade_id,
+            'entry_btc_spot': self.entry_btc_spot,
+            'resolution_time': self.resolution_time.isoformat() if self.resolution_time else None,
+            'exit_btc_spot': self.exit_btc_spot,
+            'exit_price': self.exit_price,
+            'pnl': self.pnl,
+            'fee': self.fee,
         }
 
 
@@ -230,6 +256,9 @@ class IntegratedBTCStrategy(Strategy):
 
         # Paper trading tracker
         self.paper_trades: List[PaperTrade] = []
+        # Pending paper trades awaiting 15-min market resolution.
+        # Resolved by _resolve_pending_paper_trades() in the timer loop.
+        self._pending_paper_trades: List[PaperTrade] = []
 
         self.test_mode = test_mode
 
@@ -615,6 +644,12 @@ class IntegratedBTCStrategy(Strategy):
                     # Normal market switch
                     self._switch_to_next_market()
 
+            # Settle any paper trades whose resolution time has arrived
+            try:
+                await self._resolve_pending_paper_trades()
+            except Exception as e:
+                logger.warning(f"Paper trade resolver crashed: {e}")
+
             await asyncio.sleep(10)
 
     # ------------------------------------------------------------------
@@ -976,28 +1011,37 @@ class IntegratedBTCStrategy(Strategy):
 
         # --- Phase 5 / 6: Execute ---
         if is_simulation:
-            await self._record_paper_trade(fused, POSITION_SIZE_USD, current_price, direction)
+            await self._record_paper_trade(fused, POSITION_SIZE_USD, current_price, direction, metadata)
         else:
             await self._place_real_order(fused, POSITION_SIZE_USD, current_price, direction)
-            
-    async def _record_paper_trade(self, signal, position_size, current_price, direction):
-        exit_delta = timedelta(minutes=1) if self.test_mode else timedelta(minutes=15)
-        exit_time = datetime.now(timezone.utc) + exit_delta
 
-        if "BULLISH" in str(signal.direction):
-            movement = random.uniform(-0.02, 0.08)
+    async def _record_paper_trade(self, signal, position_size, current_price, direction, metadata):
+        """Open a paper trade and queue it for resolution at market close.
+
+        No exit price, no P&L at this point. The trade enters _pending_paper_trades
+        and is settled by _resolve_pending_paper_trades when the market closes —
+        using the actual BTC spot direction from Coinbase, not RNG.
+        """
+        entry_btc_spot = metadata.get("spot_price") if metadata else None
+        if entry_btc_spot is None:
+            logger.warning(
+                "Cannot open paper trade — no entry BTC spot available "
+                "(Coinbase fetch failed earlier). Skipping this trade entirely "
+                "rather than recording one we can't honestly resolve."
+            )
+            return
+
+        # Resolution time: end of current 15-min market in normal mode, +1min in test mode.
+        if self.test_mode:
+            resolution_time = datetime.now(timezone.utc) + timedelta(minutes=1)
+        elif self.next_switch_time:
+            # next_switch_time is the end of the active market — add 5s buffer for settlement.
+            resolution_time = self.next_switch_time + timedelta(seconds=5)
         else:
-            movement = random.uniform(-0.08, 0.02)
+            resolution_time = datetime.now(timezone.utc) + timedelta(minutes=15)
 
-        exit_price = current_price * (Decimal("1.0") + Decimal(str(movement)))
-        exit_price = max(Decimal("0.01"), min(Decimal("0.99"), exit_price))
+        trade_id = f"paper_{int(datetime.now(timezone.utc).timestamp())}"
 
-        if direction == "long":
-            pnl = position_size * (exit_price - current_price) / current_price
-        else:
-            pnl = position_size * (current_price - exit_price) / current_price
-
-        outcome = "WIN" if pnl > 0 else "LOSS"
         paper_trade = PaperTrade(
             timestamp=datetime.now(timezone.utc),
             direction=direction.upper(),
@@ -1005,41 +1049,136 @@ class IntegratedBTCStrategy(Strategy):
             price=float(current_price),
             signal_score=signal.score,
             signal_confidence=signal.confidence,
-            outcome=outcome,
+            outcome="PENDING",
+            trade_id=trade_id,
+            entry_btc_spot=float(entry_btc_spot),
+            resolution_time=resolution_time,
         )
         self.paper_trades.append(paper_trade)
-
-        self.performance_tracker.record_trade(
-            trade_id=f"paper_{int(datetime.now().timestamp())}",
-            direction=direction,
-            entry_price=current_price,
-            exit_price=exit_price,
-            size=position_size,
-            entry_time=datetime.now(timezone.utc),
-            exit_time=exit_time,
-            signal_score=signal.score,
-            signal_confidence=signal.confidence,
-            metadata={
-                "simulated": True,
-                "num_signals": signal.num_signals if hasattr(signal, 'num_signals') else 1,
-                "fusion_score": signal.score,
-            }
-        )
-
-        if hasattr(self, 'grafana_exporter') and self.grafana_exporter:
-            self.grafana_exporter.increment_trade_counter(won=(pnl > 0))
-            self.grafana_exporter.record_trade_duration(exit_delta.total_seconds())
+        self._pending_paper_trades.append(paper_trade)
 
         logger.info("=" * 80)
-        logger.info("[SIMULATION] PAPER TRADE RECORDED")
-        logger.info(f"  Direction: {direction.upper()}")
+        logger.info("[SIMULATION] PAPER TRADE OPENED — awaiting resolution")
+        logger.info(f"  Trade ID: {trade_id}")
+        logger.info(f"  Direction: {direction.upper()} ({'YES' if direction == 'long' else 'NO'} token)")
         logger.info(f"  Size: ${float(position_size):.2f}")
-        logger.info(f"  Entry Price: ${float(current_price):,.4f}")
-        logger.info(f"  Simulated Exit: ${float(exit_price):,.4f}")
-        logger.info(f"  Simulated P&L: ${float(pnl):+.2f} ({movement*100:+.2f}%)")
-        logger.info(f"  Outcome: {outcome}")
-        logger.info(f"  Total Paper Trades: {len(self.paper_trades)}")
+        logger.info(f"  Entry Polymarket Price: ${float(current_price):,.4f}")
+        logger.info(f"  Entry BTC Spot: ${float(entry_btc_spot):,.2f}")
+        logger.info(f"  Resolves at: {resolution_time.strftime('%H:%M:%S')} UTC")
+        logger.info(f"  Pending queue size: {len(self._pending_paper_trades)}")
         logger.info("=" * 80)
+
+        self._save_paper_trades()
+
+    async def _resolve_pending_paper_trades(self):
+        """Settle any pending paper trades whose resolution time has arrived.
+
+        Resolution mechanism:
+          1. Fetch current Coinbase BTC spot at resolution_time.
+          2. yes_won = (exit_btc > entry_btc). If equal, treat as YES win (Polymarket convention).
+          3. Compute binary payout from entry probability and direction:
+               long  + yes_won  → payout = size * (1 - p) / p     [bought YES at p, resolved $1]
+               long  + !yes_won → payout = -size                   [bought YES at p, resolved $0]
+               short + !yes_won → payout = size * p / (1 - p)      [bought NO at 1-p, resolved $1]
+               short + yes_won  → payout = -size                   [bought NO at 1-p, resolved $0]
+          4. Fee approx: size * 4·p·(1-p)·POLYMARKET_FEE_PEAK
+          5. P&L = payout - fee
+        """
+        if not self._pending_paper_trades:
+            return
+
+        now = datetime.now(timezone.utc)
+        due = [t for t in self._pending_paper_trades if t.resolution_time and now >= t.resolution_time]
+        if not due:
+            return
+
+        # Fetch BTC spot once for all due trades (they'd all use the same near-simultaneous price)
+        exit_btc = None
+        try:
+            from data_sources.coinbase.adapter import CoinbaseDataSource
+            coinbase = CoinbaseDataSource()
+            await coinbase.connect()
+            spot = await coinbase.get_current_price()
+            await coinbase.disconnect()
+            if spot:
+                exit_btc = float(spot)
+        except Exception as e:
+            logger.warning(f"Resolver: Coinbase fetch failed ({e}) — will retry next tick")
+            return
+
+        if exit_btc is None:
+            logger.warning("Resolver: Coinbase returned no price — will retry next tick")
+            return
+
+        for trade in due:
+            p = trade.price                # Polymarket YES probability at entry
+            size = trade.size_usd
+            entry_btc = trade.entry_btc_spot
+            direction = trade.direction.lower()
+
+            yes_won = exit_btc >= entry_btc
+
+            if direction == "long":
+                payout = size * (1.0 - p) / p if yes_won else -size
+            else:  # short → bought NO at price (1-p)
+                payout = size * p / (1.0 - p) if (not yes_won) else -size
+
+            fee = size * 4.0 * p * (1.0 - p) * POLYMARKET_FEE_PEAK
+            pnl = payout - fee
+
+            trade.exit_btc_spot = exit_btc
+            trade.exit_price = 1.0 if yes_won else 0.0
+            trade.pnl = pnl
+            trade.fee = fee
+            trade.outcome = "WIN" if pnl > 0 else "LOSS"
+
+            logger.info("=" * 80)
+            logger.info("[SIMULATION] PAPER TRADE RESOLVED")
+            logger.info(f"  Trade ID: {trade.trade_id}")
+            logger.info(f"  Direction: {trade.direction} ({'YES' if direction == 'long' else 'NO'})")
+            logger.info(f"  Entry: Polymarket ${p:,.4f} | BTC ${entry_btc:,.2f}")
+            logger.info(f"  Exit:  Polymarket ${trade.exit_price:.2f} | BTC ${exit_btc:,.2f}")
+            logger.info(f"  BTC moved: {(exit_btc - entry_btc):+,.2f} → {'YES won' if yes_won else 'NO won'}")
+            logger.info(f"  Gross payout: ${payout:+.4f}")
+            logger.info(f"  Fee (≈{(fee/size)*100:.2f}%): ${fee:.4f}")
+            logger.info(f"  Net P&L: ${pnl:+.4f}")
+            logger.info(f"  Outcome: {trade.outcome}")
+            logger.info("=" * 80)
+
+            try:
+                self.performance_tracker.record_trade(
+                    trade_id=trade.trade_id,
+                    direction=direction,
+                    entry_price=Decimal(str(p)),
+                    exit_price=Decimal(str(trade.exit_price)),
+                    size=Decimal(str(size)),
+                    entry_time=trade.timestamp,
+                    exit_time=now,
+                    signal_score=trade.signal_score,
+                    signal_confidence=trade.signal_confidence,
+                    metadata={
+                        "simulated": True,
+                        "entry_btc_spot": entry_btc,
+                        "exit_btc_spot": exit_btc,
+                        "fee": fee,
+                        "pnl": pnl,
+                    },
+                )
+            except Exception as e:
+                logger.warning(f"performance_tracker.record_trade failed: {e}")
+
+            if self.grafana_exporter:
+                try:
+                    self.grafana_exporter.increment_trade_counter(won=(pnl > 0))
+                    duration = (now - trade.timestamp).total_seconds()
+                    self.grafana_exporter.record_trade_duration(duration)
+                except Exception as e:
+                    logger.debug(f"grafana update failed: {e}")
+
+        # Remove resolved trades from pending
+        self._pending_paper_trades = [
+            t for t in self._pending_paper_trades if t not in due
+        ]
 
         self._save_paper_trades()
 
