@@ -9,14 +9,24 @@
             "command": "/Users/jimmy/Documents/App-project/Polymarket-BTC-15-Minute-Trading-Bot/.claude/hooks/guard.py"
           }
         ]
-      }
-    ],
-    "Stop": [
+      },
       {
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jimmy/Documents/App-project/Polymarket-BTC-15-Minute-Trading-Bot/.claude/hooks/review-stop-hook.sh"
+            "command": "/Users/jimmy/Documents/App-project/Polymarket-BTC-15-Minute-Trading-Bot/.claude/hooks/commit-gate.py"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jimmy/Documents/App-project/Polymarket-BTC-15-Minute-Trading-Bot/.claude/branch_report.py --session-hook"
           }
         ]
       }
