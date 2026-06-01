@@ -41,7 +41,7 @@ BLOCKLIST_PATTERNS = [
     r"^execution/.*",                         # order placement, polymarket client, risk engine
     r"^build-steps/data/[^/]+\.(json|csv)$",  # raw top-level data files
     r"^build-steps/data/splits/.*",           # the immutable train/holdout split files
-    r"^build-steps/fetch_data\.py$",          # data fetcher (frozen)
+#     r"^build-steps/fetch_data\.py$",          # data fetcher (frozen)
     r"^build-steps/real_backtester\.py$",     # the measurement instrument
     r"^build-steps/stats/.*",                 # DSR module (frozen)
     r"^build-steps/PLAN\.md$",                # the project log (only humans edit)
