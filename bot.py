@@ -205,7 +205,7 @@ class IntegratedBTCStrategy(Strategy):
     - Correct timing for market switching
     """
 
-    def __init__(self, redis_client=None, enable_grafana=True, test_mode=False):
+    def __init__(self, redis_client=None, enable_grafana=True, test_mode=False, data_only=False):
         super().__init__()
 
         self.bot_start_time = datetime.now(timezone.utc)
@@ -214,7 +214,11 @@ class IntegratedBTCStrategy(Strategy):
         # Nautilus
         self.instrument_id = None
         self.redis_client = redis_client
-        self.current_simulation_mode = False
+        # data_only: the node was built with NO execution client (paper-only, no account).
+        # It can only read the public market data feed and record paper trades — it is
+        # physically incapable of placing an order. A Redis flip to "live" is refused.
+        self.data_only = data_only
+        self.current_simulation_mode = True if data_only else False
 
         # Store ALL BTC instruments
         self.all_btc_instruments: List[Dict] = []
@@ -358,6 +362,21 @@ class IntegratedBTCStrategy(Strategy):
 
     async def check_simulation_mode(self) -> bool:
         """Check Redis for current simulation mode."""
+        # Data-only paper mode: there is no execution client, so live trading is
+        # impossible. Refuse any Redis flip to live and stay in simulation for the
+        # node's lifetime. Going live requires an explicit restart in --live mode.
+        if self.data_only:
+            if self.redis_client:
+                try:
+                    if self.redis_client.get('btc_trading:simulation_mode') == '0':
+                        logger.warning(
+                            "Redis requested LIVE TRADING but this node is data-only "
+                            "(no execution client) — REFUSING. Staying in simulation. "
+                            "Restart with --live to trade for real."
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to check Redis simulation mode: {e}")
+            return True
         if not self.redis_client:
             return self.current_simulation_mode
         try:
@@ -1627,6 +1646,26 @@ def run_integrated_bot(simulation: bool = False, enable_grafana: bool = True, te
         use_gamma_markets=True,
     )
 
+    # =========================================================================
+    # Paper mode is DATA-ONLY: no execution client is registered, so the node
+    # cannot place an order even in principle. The Polymarket market data feed
+    # (public market websocket + public REST) needs no real account, so when the
+    # operator has no credentials we inject safe placeholders. Verified by spike:
+    # a data-only node connects to wss://.../ws/market and streams quotes with
+    # these placeholders. The --live path keeps real creds + the exec client.
+    # =========================================================================
+    if simulation and not os.getenv("POLYMARKET_PK"):
+        logger.warning(
+            "Paper (data-only) mode with no POLYMARKET_PK — injecting placeholder "
+            "credentials. The public market data feed needs no account; this node "
+            "registers NO execution client and cannot place orders."
+        )
+        os.environ.setdefault("POLYMARKET_PK", "0x" + "1" * 64)  # valid-format throwaway key
+        os.environ.setdefault("POLYMARKET_API_KEY", "paper-no-account")
+        os.environ.setdefault("POLYMARKET_API_SECRET", "paper-no-account")
+        os.environ.setdefault("POLYMARKET_PASSPHRASE", "paper-no-account")
+        os.environ.setdefault("POLYMARKET_FUNDER", "0x" + "0" * 40)
+
     poly_data_cfg = PolymarketDataClientConfig(
         private_key=os.getenv("POLYMARKET_PK"),
         api_key=os.getenv("POLYMARKET_API_KEY"),
@@ -1636,14 +1675,18 @@ def run_integrated_bot(simulation: bool = False, enable_grafana: bool = True, te
         instrument_provider=instrument_cfg,
     )
 
-    poly_exec_cfg = PolymarketExecClientConfig(
-        private_key=os.getenv("POLYMARKET_PK"),
-        api_key=os.getenv("POLYMARKET_API_KEY"),
-        api_secret=os.getenv("POLYMARKET_API_SECRET"),
-        passphrase=os.getenv("POLYMARKET_PASSPHRASE"),
-        signature_type=1,
-        instrument_provider=instrument_cfg,
-    )
+    # Execution client is registered ONLY in --live mode. In paper mode it is
+    # deliberately absent — the strongest possible guarantee against a real order.
+    exec_clients = {}
+    if not simulation:
+        exec_clients[POLYMARKET] = PolymarketExecClientConfig(
+            private_key=os.getenv("POLYMARKET_PK"),
+            api_key=os.getenv("POLYMARKET_API_KEY"),
+            api_secret=os.getenv("POLYMARKET_API_SECRET"),
+            passphrase=os.getenv("POLYMARKET_PASSPHRASE"),
+            signature_type=1,
+            instrument_provider=instrument_cfg,
+        )
 
     config = TradingNodeConfig(
         environment="live",
@@ -1656,22 +1699,27 @@ def run_integrated_bot(simulation: bool = False, enable_grafana: bool = True, te
         exec_engine=LiveExecEngineConfig(qsize=6000),
         risk_engine=LiveRiskEngineConfig(bypass=simulation),
         data_clients={POLYMARKET: poly_data_cfg},
-        exec_clients={POLYMARKET: poly_exec_cfg},
+        exec_clients=exec_clients,
     )
 
     strategy = IntegratedBTCStrategy(
         redis_client=redis_client,
         enable_grafana=enable_grafana,
         test_mode=test_mode,
+        data_only=simulation,  # paper mode => no exec client => refuse live-switch
     )
 
     print("\nBuilding Nautilus node...")
     node = TradingNode(config=config)
     node.add_data_client_factory(POLYMARKET, PolymarketLiveDataClientFactory)
-    node.add_exec_client_factory(POLYMARKET, PolymarketLiveExecClientFactory)
+    if not simulation:
+        node.add_exec_client_factory(POLYMARKET, PolymarketLiveExecClientFactory)
     node.trader.add_strategy(strategy)
     node.build()
-    logger.info("Nautilus node built successfully")
+    logger.info(
+        f"Nautilus node built successfully "
+        f"({'DATA-ONLY paper' if simulation else 'LIVE with execution'} mode)"
+    )
 
     print()
     print("=" * 80)
