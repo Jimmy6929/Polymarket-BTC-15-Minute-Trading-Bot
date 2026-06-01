@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-01T20:35:08.191151+00:00",
+  "generated_at": "2026-06-01T22:03:59.424510+00:00",
   "regenerate": "python build-steps/fetch_data.py --full",
   "sources": {
     "polymarket_btc_15m.json": {
@@ -15,12 +15,12 @@
       "schema": "list of market dicts keyed by slug_ts; each has yes_price_history (per-min YES prices)"
     },
     "coinbase_btc_1min.csv": {
-      "rows": 258754,
+      "rows": 338905,
       "date_range_utc": [
-        "2025-11-25T21:55:00+00:00",
-        "2026-05-24T21:55:00+00:00"
+        "2025-10-09T00:00:00+00:00",
+        "2026-06-01T22:02:00+00:00"
       ],
-      "sha256": "03906aec384463efcc373e4565b750596f4d57da37053ebcbf568889c80248bc",
+      "sha256": "2e206144e7efdc759ceefea639b08df42e244c9685ec1c500236d05bc909f257",
       "schema": "ts_unix,low,high,open,close,volume (1-min BTC-USD)"
     },
     "fear_greed.json": {
