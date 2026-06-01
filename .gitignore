@@ -155,3 +155,11 @@ node_modules/
 !.claude/state/iteration_scratch/.gitkeep
 build-steps/data/runs/*
 !build-steps/data/runs/.gitkeep
+
+# Large raw + derived datasets — regenerable via `python build-steps/fetch_data.py --full`.
+# MANIFEST.json (committed) records their range/count/sha256 so dataset state is
+# reproducible from git without the bytes. splits/ (tiny id lists) stays tracked.
+build-steps/data/*.json
+build-steps/data/*.csv
+build-steps/data/*.bak
+!build-steps/data/MANIFEST.json
