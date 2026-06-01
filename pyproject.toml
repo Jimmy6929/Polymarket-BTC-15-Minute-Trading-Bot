@@ -12,8 +12,9 @@ dependencies = ["typer>=0.12", "rich>=13"]
 [project.scripts]
 paper-trading-run = "paper_cli:run_entry"
 paper-trading-view = "paper_cli:view_entry"
+backtest-run = "backtest_cli:run_entry"
 
-# Single-module project — disable setuptools auto-discovery (the repo has many
+# Explicit module list — disable setuptools auto-discovery (the repo has many
 # unrelated top-level .py files that would otherwise confuse packaging).
 [tool.setuptools]
-py-modules = ["paper_cli"]
+py-modules = ["paper_cli", "backtest_cli"]
