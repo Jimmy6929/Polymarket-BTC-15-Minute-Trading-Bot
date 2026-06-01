@@ -1,0 +1,16 @@
+{
+  "verdict": "PASS",
+  "attempt": 2,
+  "timestamp": "2026-06-01T14:15:05Z",
+  "diff_sha": "bd3ebe0daaf4",
+  "task_id": "a759b0e2",
+  "reviewers": {
+    "project_goal": "PASS",
+    "task_goal": "PASS",
+    "senior_engineer": "PASS"
+  },
+  "hard_signals": {
+    "ruff": "pass",
+    "pytest": "skipped"
+  }
+}
