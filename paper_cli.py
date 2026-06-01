@@ -75,6 +75,19 @@ class LogTailer:
             "next_switch": None,
             "crashed": False,
         }
+        # Decision funnel — a strategy can fire a decision every minute-13 window and
+        # still record 0 trades because a downstream gate blocks it (the late window
+        # lands on a near-resolved one-sided book, so the liquidity guard fires). A
+        # silent "0 trades" reads as "broken"; this surfaces WHY. All events are
+        # already in the log — we only count them, the bot is untouched.
+        self.funnel = {
+            "windows": 0,   # trade windows entered (decision attempted)
+            "neutral": 0,   # skipped — price too close to 0.50 (no trend)
+            "risk": 0,      # blocked by risk engine
+            "no_liq": 0,    # blocked by liquidity guard (book too thin / one-sided)
+            "opened": 0,    # paper trade actually recorded
+        }
+        self.recent_blocks: list[tuple[str, str]] = []  # (HH:MM:SS, reason), newest last
 
     def update(self) -> dict:
         try:
@@ -111,7 +124,39 @@ class LogTailer:
                 info["next_switch"] = m2.group(1)
             if "Traceback (most recent call last)" in ln:
                 info["crashed"] = True
+            self._scan_funnel(ln)
         return info
+
+    def _scan_funnel(self, ln: str) -> None:
+        """Accumulate the decision funnel + recent-block reasons from one log line.
+
+        These are loguru lines from bot.py (`__main__:...`), distinct from the
+        high-volume Nautilus quote spam. Counting is idempotent per line because
+        update() only ever feeds each complete line once.
+        """
+        tm = re.match(r"^\d{4}-\d{2}-\d{2} (\d{2}:\d{2}:\d{2})", ln)
+        when = tm.group(1) if tm else "--:--:--"
+
+        if "LATE-WINDOW TRADE" in ln:
+            self.funnel["windows"] += 1
+        elif "PAPER TRADE OPENED" in ln:
+            self.funnel["opened"] += 1
+        elif "SKIPPING trade" in ln or "TREND: NEUTRAL" in ln:
+            self.funnel["neutral"] += 1
+            m = re.search(r"NEUTRAL \(([\d.]+%)\)", ln)
+            self._push_block(when, f"neutral — price {m.group(1)} (coin flip)" if m else "neutral — no trend")
+        elif "Risk engine blocked" in ln:
+            self.funnel["risk"] += 1
+            self._push_block(when, "risk engine blocked")
+        elif "No liquidity" in ln:
+            self.funnel["no_liq"] += 1
+            m = re.search(r"No liquidity for (\w+): (bid|ask)=\$([\d.]+)", ln)
+            self._push_block(when, f"no liquidity — {m.group(1)} {m.group(2)}=${m.group(3)}" if m else "no liquidity")
+
+    def _push_block(self, when: str, reason: str) -> None:
+        self.recent_blocks.append((when, reason))
+        if len(self.recent_blocks) > 8:
+            self.recent_blocks.pop(0)
 
 
 def load_trades() -> list[dict]:
@@ -200,6 +245,49 @@ def _stats_panel(stats: dict) -> Panel:
     return Panel(t, title="[bold]Paper P&L[/bold]", border_style="blue")
 
 
+def _funnel_panel(funnel: dict, recent_blocks: list[tuple[str, str]]) -> Panel:
+    """Show the decision→trade funnel and why decisions get blocked.
+
+    Without this, a run that decides every cycle but is blocked downstream looks
+    identical to a run that never decides at all — both show '0 trades'.
+    """
+    f = funnel
+    blocked = f["neutral"] + f["risk"] + f["no_liq"]
+
+    counts = Table.grid(padding=(0, 2))
+    counts.add_column(justify="right", style="bold")
+    counts.add_column()
+
+    def n(v, style=None):
+        return Text(str(v), style=style) if style else str(v)
+
+    counts.add_row("Windows entered", n(f["windows"]))
+    counts.add_row("Opened", n(f["opened"], "green" if f["opened"] else "dim"))
+    counts.add_row("Blocked", n(blocked, "red" if blocked else "dim"))
+    counts.add_row("  · neutral (no trend)", n(f["neutral"], "yellow" if f["neutral"] else "dim"))
+    counts.add_row("  · risk engine", n(f["risk"], "yellow" if f["risk"] else "dim"))
+    counts.add_row("  · no liquidity", n(f["no_liq"], "yellow" if f["no_liq"] else "dim"))
+
+    if recent_blocks:
+        feed = Table.grid(padding=(0, 1))
+        feed.add_column(style="dim", width=9)
+        feed.add_column(style="red")
+        for when, reason in recent_blocks[-6:]:
+            feed.add_row(when, reason)
+        body = Group(counts, Text(""), Text("Recent blocks:", style="dim"), feed)
+    else:
+        body = Group(counts, Text(""), Text("No blocked decisions yet.", style="dim"))
+
+    # Highlight the structural case: every window blocked, none opened.
+    if f["windows"] and not f["opened"] and blocked >= f["windows"]:
+        body = Group(
+            Text("⚠ every decision is being blocked — book too thin near resolution", style="bold red"),
+            Text(""),
+            body,
+        )
+    return Panel(body, title="[bold]Decision funnel[/bold]", border_style="magenta")
+
+
 def _trades_table(trades: list[dict], limit: int = 12) -> Panel:
     table = Table(expand=True, show_edge=False, pad_edge=False)
     table.add_column("#", justify="right", style="dim", width=4)
@@ -237,11 +325,19 @@ def _trades_table(trades: list[dict], limit: int = 12) -> Panel:
             pnl_txt,
         )
     if not recent:
-        table.add_row("—", "no trades yet — first decision fires near minute 13", "", "", "", "", "", "")
+        table.add_row("—", "no trades opened yet — see Decision funnel for why", "", "", "", "", "", "")
     return Panel(table, title=f"[bold]Recent paper trades[/bold] (showing {len(recent)} of {len(trades)})", border_style="cyan")
 
 
-def render(info: dict, stats: dict, trades: list[dict], start_ts: datetime, proc_alive: bool) -> Group:
+def render(
+    info: dict,
+    stats: dict,
+    trades: list[dict],
+    funnel: dict,
+    recent_blocks: list[tuple[str, str]],
+    start_ts: datetime,
+    proc_alive: bool,
+) -> Group:
     header = Panel(
         Text("Polymarket BTC 15-min — Paper Trader", style="bold white", justify="center"),
         border_style="bright_black",
@@ -251,7 +347,7 @@ def render(info: dict, stats: dict, trades: list[dict], start_ts: datetime, proc
         f"Ctrl-C to stop · logs → {DEFAULT_LOG.name} · {'running' if proc_alive else 'STOPPED'}",
         style="dim", justify="center",
     )
-    return Group(header, top, _trades_table(trades), footer)
+    return Group(header, top, _funnel_panel(funnel, recent_blocks), _trades_table(trades), footer)
 
 
 # --------------------------------------------------------------------------- #
@@ -308,12 +404,12 @@ def run(
             while proc.poll() is None:
                 info = tailer.update()
                 trades = load_trades()
-                live.update(render(info, trade_stats(trades), trades, start_ts, True), refresh=True)
+                live.update(render(info, trade_stats(trades), trades, tailer.funnel, tailer.recent_blocks, start_ts, True), refresh=True)
                 time.sleep(refresh)
             # process exited on its own
             info = tailer.update()
             trades = load_trades()
-            live.update(render(info, trade_stats(trades), trades, start_ts, False), refresh=True)
+            live.update(render(info, trade_stats(trades), trades, tailer.funnel, tailer.recent_blocks, start_ts, False), refresh=True)
     except KeyboardInterrupt:
         interrupted = True
     finally:
@@ -332,10 +428,17 @@ def run(
         console.print("[yellow]Stopped by user.[/yellow]")
     elif proc.returncode not in (0, -signal.SIGINT):
         console.print(f"[bold red]Bot exited unexpectedly (code {proc.returncode}). See {log_file}.[/bold red]")
+    fn = tailer.funnel
+    blocked = fn["neutral"] + fn["risk"] + fn["no_liq"]
     console.print(
         f"Session: [bold]{s['total']}[/bold] trades "
         f"([green]{s['wins']}W[/green]/[red]{s['losses']}L[/red]/[yellow]{s['pending']} pending[/yellow]). "
         f"Logs: {log_file}"
+    )
+    console.print(
+        f"Decisions: [bold]{fn['windows']}[/bold] windows → "
+        f"[green]{fn['opened']} opened[/green], [red]{blocked} blocked[/red] "
+        f"(neutral {fn['neutral']} · risk {fn['risk']} · no-liquidity {fn['no_liq']})."
     )
 
 
