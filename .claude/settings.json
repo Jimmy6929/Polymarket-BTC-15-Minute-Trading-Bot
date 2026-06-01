@@ -10,6 +10,16 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jimmy/Documents/App-project/Polymarket-BTC-15-Minute-Trading-Bot/.claude/hooks/review-stop-hook.sh"
+          }
+        ]
+      }
     ]
   }
 }
