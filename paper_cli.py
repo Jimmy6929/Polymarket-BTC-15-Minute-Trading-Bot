@@ -50,51 +50,68 @@ def _running_bot_pids() -> list[str]:
         return []
 
 
-def parse_log(log_path: Path) -> dict:
-    """Derive live status from the tail of the bot's log (best-effort, never raises)."""
-    info = {
-        "mode": "starting…",
-        "no_account": False,
-        "node_built": False,
-        "connected": False,
-        "streaming": False,
-        "market": None,
-        "next_switch": None,
-        "last_decision": None,         # (text, style)
-        "last_line": None,
-        "crashed": False,
-    }
-    try:
-        lines = log_path.read_text(errors="ignore").splitlines()
-    except Exception:
+class LogTailer:
+    """Incrementally tail the bot log and accumulate live status.
+
+    The log is flooded with high-volume Nautilus WARN lines (e.g. "Dropping
+    QuoteTick"), so a fixed last-N-lines tail would bury the one-time startup
+    markers (mode / connected / current market) under quote spam and the dashboard
+    would never see them. Instead we read only the bytes appended since last call
+    and ACCUMULATE state — a marker found once stays set — which is also O(new
+    bytes) per refresh regardless of how large the log grows. Never raises.
+    """
+
+    def __init__(self, path: Path):
+        self.path = path
+        self._offset = 0
+        self._buf = ""  # trailing partial line carried to the next read
+        self.info = {
+            "mode": "starting…",
+            "no_account": False,
+            "node_built": False,
+            "connected": False,
+            "streaming": False,
+            "market": None,
+            "next_switch": None,
+            "crashed": False,
+        }
+
+    def update(self) -> dict:
+        try:
+            with open(self.path, "r", errors="ignore") as f:
+                f.seek(self._offset)
+                chunk = f.read()
+                self._offset = f.tell()
+        except Exception:
+            return self.info
+        # Carry any trailing partial line (no newline yet) to the next read so a
+        # marker split across a read boundary is parsed whole, not silently lost.
+        data = self._buf + chunk
+        nl = data.rfind("\n")
+        if nl == -1:
+            self._buf = data
+            return self.info
+        complete, self._buf = data[:nl], data[nl + 1:]
+        info = self.info
+        for ln in complete.splitlines():
+            if "DATA-ONLY paper mode" in ln:
+                info["mode"] = "DATA-ONLY paper"
+                info["node_built"] = True
+            if "injecting placeholder" in ln:
+                info["no_account"] = True
+            if "Connected to wss" in ln:
+                info["connected"] = True
+            if "Market STABLE" in ln:
+                info["streaming"] = True
+            m = re.search(r"CURRENT MARKET: (btc-updown-15m-\d+)", ln)
+            if m:
+                info["market"] = m.group(1)
+            m2 = re.search(r"Next switch at: ([0-9:]+)", ln)
+            if m2:
+                info["next_switch"] = m2.group(1)
+            if "Traceback (most recent call last)" in ln:
+                info["crashed"] = True
         return info
-    for ln in lines[-600:]:
-        if "DATA-ONLY paper mode" in ln:
-            info["mode"] = "DATA-ONLY paper"
-            info["node_built"] = True
-        if "injecting placeholder" in ln:
-            info["no_account"] = True
-        if "Connected to wss" in ln:
-            info["connected"] = True
-        if "Market STABLE" in ln:
-            info["streaming"] = True
-        m = re.search(r"CURRENT MARKET: (btc-updown-15m-\d+)", ln)
-        if m:
-            info["market"] = m.group(1)
-        m2 = re.search(r"Next switch at: ([0-9:]+)", ln)
-        if m2:
-            info["next_switch"] = m2.group(1)
-        if "TREND: UP" in ln:
-            info["last_decision"] = ("UP → buy YES", "green")
-        elif "TREND: DOWN" in ln:
-            info["last_decision"] = ("DOWN → buy NO", "green")
-        elif "NEUTRAL" in ln and "SKIP" in ln.upper():
-            info["last_decision"] = ("NEUTRAL → skipped (coin-flip zone)", "yellow")
-        if "Traceback (most recent call last)" in ln:
-            info["crashed"] = True
-    if lines:
-        info["last_line"] = lines[-1][-140:]
-    return info
 
 
 def load_trades() -> list[dict]:
@@ -284,16 +301,17 @@ def run(
     proc = subprocess.Popen([PYTHON, str(BOT)], stdout=log_fh, stderr=subprocess.STDOUT, cwd=str(REPO))
     start_ts = datetime.now(timezone.utc)
 
+    tailer = LogTailer(log_file)
     interrupted = False
     try:
         with Live(console=console, screen=False, refresh_per_second=4, auto_refresh=False) as live:
             while proc.poll() is None:
-                info = parse_log(log_file)
+                info = tailer.update()
                 trades = load_trades()
                 live.update(render(info, trade_stats(trades), trades, start_ts, True), refresh=True)
                 time.sleep(refresh)
             # process exited on its own
-            info = parse_log(log_file)
+            info = tailer.update()
             trades = load_trades()
             live.update(render(info, trade_stats(trades), trades, start_ts, False), refresh=True)
     except KeyboardInterrupt:
