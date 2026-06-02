@@ -80,14 +80,24 @@ class LogTailer:
         # lands on a near-resolved one-sided book, so the liquidity guard fires). A
         # silent "0 trades" reads as "broken"; this surfaces WHY. All events are
         # already in the log — we only count them, the bot is untouched.
+        #
+        # Counts are per DISTINCT market window, keyed by (slug, sub-interval) — NOT
+        # per log line. The bot retries on every tick within the 60s window after a
+        # block (it sets last_trade_time = -1), so one market emits dozens of
+        # "LATE-WINDOW TRADE" lines; counting lines would massively over-report.
         self.funnel = {
-            "windows": 0,   # trade windows entered (decision attempted)
-            "neutral": 0,   # skipped — price too close to 0.50 (no trend)
-            "risk": 0,      # blocked by risk engine
-            "no_liq": 0,    # blocked by liquidity guard (book too thin / one-sided)
-            "opened": 0,    # paper trade actually recorded
+            "windows": 0,   # distinct trade windows entered (decision attempted)
+            "neutral": 0,   # windows skipped — price too close to 0.50 (no trend)
+            "risk": 0,      # windows blocked by risk engine
+            "no_liq": 0,    # windows blocked by liquidity guard (book too thin)
+            "opened": 0,    # windows that recorded a paper trade
         }
         self.recent_blocks: list[tuple[str, str]] = []  # (HH:MM:SS, reason), newest last
+        # Per-window dedup state.
+        self._seen_windows: set = set()             # (slug, sub) seen
+        self._window_state: dict = {}               # (slug, sub) -> "opened"|"neutral"|"risk"|"no_liq"
+        self._cur_window = None                      # (slug, sub) currently being decided
+        self._pending_slug = None                    # slug captured between markers, awaiting sub-interval
 
     def update(self) -> dict:
         try:
@@ -128,30 +138,72 @@ class LogTailer:
         return info
 
     def _scan_funnel(self, ln: str) -> None:
-        """Accumulate the decision funnel + recent-block reasons from one log line.
+        """Accumulate the per-window decision funnel + recent blocks from one log line.
 
         These are loguru lines from bot.py (`__main__:...`), distinct from the
-        high-volume Nautilus quote spam. Counting is idempotent per line because
-        update() only ever feeds each complete line once.
+        high-volume Nautilus quote spam. Events are attributed to the current market
+        window (slug, sub-interval) and each window is counted once per state, so the
+        retry-on-block storm within a single window collapses to one entry.
+
+        A window's log block is emitted in order:
+            LATE-WINDOW TRADE / Market: <slug> / Sub-interval #N / ...
+        so we capture the slug, then finalize the window key on the sub-interval line.
         """
         tm = re.match(r"^\d{4}-\d{2}-\d{2} (\d{2}:\d{2}:\d{2})", ln)
         when = tm.group(1) if tm else "--:--:--"
 
-        if "LATE-WINDOW TRADE" in ln:
-            self.funnel["windows"] += 1
-        elif "PAPER TRADE OPENED" in ln:
-            self.funnel["opened"] += 1
+        m = re.search(r"Market: (btc-updown-15m-\d+)", ln)
+        if m:
+            self._pending_slug = m.group(1)
+            return
+        m = re.search(r"Sub-interval #(\d+)", ln)
+        if m and self._pending_slug is not None:
+            self._cur_window = (self._pending_slug, m.group(1))
+            self._pending_slug = None
+            if self._cur_window not in self._seen_windows:
+                self._seen_windows.add(self._cur_window)
+                self._recount()
+            return
+
+        if "PAPER TRADE OPENED" in ln:
+            self._set_window_state("opened", when, None)
         elif "SKIPPING trade" in ln or "TREND: NEUTRAL" in ln:
-            self.funnel["neutral"] += 1
-            m = re.search(r"NEUTRAL \(([\d.]+%)\)", ln)
-            self._push_block(when, f"neutral — price {m.group(1)} (coin flip)" if m else "neutral — no trend")
+            mm = re.search(r"NEUTRAL \(([\d.]+%)\)", ln)
+            self._set_window_state("neutral", when,
+                                   f"neutral — price {mm.group(1)} (coin flip)" if mm else "neutral — no trend")
         elif "Risk engine blocked" in ln:
-            self.funnel["risk"] += 1
-            self._push_block(when, "risk engine blocked")
+            self._set_window_state("risk", when, "risk engine blocked")
         elif "No liquidity" in ln:
-            self.funnel["no_liq"] += 1
-            m = re.search(r"No liquidity for (\w+): (bid|ask)=\$([\d.]+)", ln)
-            self._push_block(when, f"no liquidity — {m.group(1)} {m.group(2)}=${m.group(3)}" if m else "no liquidity")
+            mm = re.search(r"No liquidity for (\w+): (bid|ask)=\$([\d.]+)", ln)
+            self._set_window_state("no_liq", when,
+                                   f"no liquidity — {mm.group(1)} {mm.group(2)}=${mm.group(3)}" if mm else "no liquidity")
+
+    def _set_window_state(self, state: str, when: str, block_reason: str | None) -> None:
+        """Record a window's outcome once. 'opened' is terminal and wins over blocks."""
+        # `key is None` only if an outcome line arrives before any window marker — not
+        # reachable in production (the launcher truncates the log and the bot always
+        # emits Market:/Sub-interval before any outcome), but if it happened all such
+        # orphans collapse into one "unknown window" bucket, still counted idempotently.
+        key = self._cur_window
+        prev = self._window_state.get(key)
+        if prev == "opened":
+            return  # terminal
+        if prev == state:
+            return  # already counted in this state (retry storm)
+        self._window_state[key] = state
+        self._seen_windows.add(key)
+        if block_reason is not None and prev is None:
+            self._push_block(when, block_reason)
+        self._recount()
+
+    def _recount(self) -> None:
+        f = self.funnel
+        f["windows"] = len(self._seen_windows)
+        states = self._window_state.values()
+        f["opened"] = sum(1 for s in states if s == "opened")
+        f["neutral"] = sum(1 for s in states if s == "neutral")
+        f["risk"] = sum(1 for s in states if s == "risk")
+        f["no_liq"] = sum(1 for s in states if s == "no_liq")
 
     def _push_block(self, when: str, reason: str) -> None:
         self.recent_blocks.append((when, reason))
