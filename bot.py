@@ -1051,23 +1051,29 @@ class IntegratedBTCStrategy(Strategy):
 
         logger.info(f"Position size: $1.00 (fixed) | Direction: {direction.upper()}")
 
-        # --- Liquidity guard: don't place if market has no real depth ---
-        # The current bid/ask come from the last processed quote tick.
-        # If ask <= 0.02 or bid <= 0.02, the orderbook is essentially empty
-        # and a FAK (IOC market) order will be rejected immediately.
+        # --- Edge guard: skip near-resolved prices with negligible upside ---
+        # By minute 13 the book is usually pinned near $0 or $1. Entering there
+        # means risking ~$1 to win pennies, with a catastrophic loss on a wrong
+        # resolution — zero-to-negative EV after fees. Block BOTH extremes
+        # symmetrically. (The old check only caught the cheap side via `<= 0.02`,
+        # so a LONG at ask≈0.999 — same garbage, mirror image — still slipped
+        # through.) Fill is the crossed price: ask for a BUY, bid for a SELL.
+        #   LONG  (buy YES): upside (1-fill)/fill → vanishes as ask → 1
+        #   SHORT (buy NO) : upside fill/(1-fill) → vanishes as bid → 0
+        # Require at least MIN_EDGE of room from the unfavorable bound.
         last_tick = getattr(self, '_last_bid_ask', None)
         if last_tick:
             last_bid, last_ask = last_tick
-            MIN_LIQUIDITY = Decimal("0.02")
-            if direction == "long" and last_ask <= MIN_LIQUIDITY:
+            MIN_EDGE = Decimal("0.02")
+            if direction == "long" and last_ask >= (Decimal("1") - MIN_EDGE):
                 logger.warning(
-                    f"⚠ No liquidity for BUY: ask=${float(last_ask):.4f} ≤ {float(MIN_LIQUIDITY):.2f} — skipping trade, will retry next tick"
+                    f"⚠ No edge for BUY: ask=${float(last_ask):.4f} ≥ {float(1 - MIN_EDGE):.2f} — skipping trade, will retry next tick"
                 )
                 self.last_trade_time = -1  # Allow retry next tick
                 return
-            if direction == "short" and last_bid <= MIN_LIQUIDITY:
+            if direction == "short" and last_bid <= MIN_EDGE:
                 logger.warning(
-                    f"⚠ No liquidity for SELL: bid=${float(last_bid):.4f} ≤ {float(MIN_LIQUIDITY):.2f} — skipping trade, will retry next tick"
+                    f"⚠ No edge for SELL: bid=${float(last_bid):.4f} ≤ {float(MIN_EDGE):.2f} — skipping trade, will retry next tick"
                 )
                 self.last_trade_time = -1  # Allow retry next tick
                 return

@@ -89,13 +89,13 @@ class LogTailer:
             "windows": 0,   # distinct trade windows entered (decision attempted)
             "neutral": 0,   # windows skipped — price too close to 0.50 (no trend)
             "risk": 0,      # windows blocked by risk engine
-            "no_liq": 0,    # windows blocked by liquidity guard (book too thin)
+            "no_edge": 0,   # windows blocked by edge guard (fill too close to $0/$1)
             "opened": 0,    # windows that recorded a paper trade
         }
         self.recent_blocks: list[tuple[str, str]] = []  # (HH:MM:SS, reason), newest last
         # Per-window dedup state.
         self._seen_windows: set = set()             # (slug, sub) seen
-        self._window_state: dict = {}               # (slug, sub) -> "opened"|"neutral"|"risk"|"no_liq"
+        self._window_state: dict = {}               # (slug, sub) -> "opened"|"neutral"|"risk"|"no_edge"
         self._cur_window = None                      # (slug, sub) currently being decided
         self._pending_slug = None                    # slug captured between markers, awaiting sub-interval
 
@@ -173,10 +173,10 @@ class LogTailer:
                                    f"neutral — price {mm.group(1)} (coin flip)" if mm else "neutral — no trend")
         elif "Risk engine blocked" in ln:
             self._set_window_state("risk", when, "risk engine blocked")
-        elif "No liquidity" in ln:
-            mm = re.search(r"No liquidity for (\w+): (bid|ask)=\$([\d.]+)", ln)
-            self._set_window_state("no_liq", when,
-                                   f"no liquidity — {mm.group(1)} {mm.group(2)}=${mm.group(3)}" if mm else "no liquidity")
+        elif "No edge" in ln:
+            mm = re.search(r"No edge for (\w+): (bid|ask)=\$([\d.]+)", ln)
+            self._set_window_state("no_edge", when,
+                                   f"no edge — {mm.group(1)} {mm.group(2)}=${mm.group(3)}" if mm else "no edge")
 
     def _set_window_state(self, state: str, when: str, block_reason: str | None) -> None:
         """Record a window's outcome once. 'opened' is terminal and wins over blocks."""
@@ -203,7 +203,7 @@ class LogTailer:
         f["opened"] = sum(1 for s in states if s == "opened")
         f["neutral"] = sum(1 for s in states if s == "neutral")
         f["risk"] = sum(1 for s in states if s == "risk")
-        f["no_liq"] = sum(1 for s in states if s == "no_liq")
+        f["no_edge"] = sum(1 for s in states if s == "no_edge")
 
     def _push_block(self, when: str, reason: str) -> None:
         self.recent_blocks.append((when, reason))
@@ -307,7 +307,7 @@ def _funnel_panel(funnel: dict, recent_blocks: list[tuple[str, str]]) -> Panel:
     identical to a run that never decides at all — both show '0 trades'.
     """
     f = funnel
-    blocked = f["neutral"] + f["risk"] + f["no_liq"]
+    blocked = f["neutral"] + f["risk"] + f["no_edge"]
 
     counts = Table.grid(padding=(0, 2))
     counts.add_column(justify="right", style="bold")
@@ -321,7 +321,7 @@ def _funnel_panel(funnel: dict, recent_blocks: list[tuple[str, str]]) -> Panel:
     counts.add_row("Blocked", n(blocked, "red" if blocked else "dim"))
     counts.add_row("  · neutral (no trend)", n(f["neutral"], "yellow" if f["neutral"] else "dim"))
     counts.add_row("  · risk engine", n(f["risk"], "yellow" if f["risk"] else "dim"))
-    counts.add_row("  · no liquidity", n(f["no_liq"], "yellow" if f["no_liq"] else "dim"))
+    counts.add_row("  · no edge (price ~$0/$1)", n(f["no_edge"], "yellow" if f["no_edge"] else "dim"))
 
     if recent_blocks:
         feed = Table.grid(padding=(0, 1))
@@ -336,7 +336,7 @@ def _funnel_panel(funnel: dict, recent_blocks: list[tuple[str, str]]) -> Panel:
     # Highlight the structural case: every window blocked, none opened.
     if f["windows"] and not f["opened"] and blocked >= f["windows"]:
         body = Group(
-            Text("⚠ every decision is being blocked — book too thin near resolution", style="bold red"),
+            Text("⚠ every decision is being blocked — price already resolved (no edge to capture)", style="bold red"),
             Text(""),
             body,
         )
@@ -533,7 +533,7 @@ def run(
             f"stopping instead of relaunching. See {log_file}.[/bold red]"
         )
     fn = tailer.funnel
-    blocked = fn["neutral"] + fn["risk"] + fn["no_liq"]
+    blocked = fn["neutral"] + fn["risk"] + fn["no_edge"]
     console.print(
         f"Session: [bold]{s['total']}[/bold] trades "
         f"([green]{s['wins']}W[/green]/[red]{s['losses']}L[/red]/[yellow]{s['pending']} pending[/yellow])"
@@ -543,7 +543,7 @@ def run(
     console.print(
         f"Decisions: [bold]{fn['windows']}[/bold] windows → "
         f"[green]{fn['opened']} opened[/green], [red]{blocked} blocked[/red] "
-        f"(neutral {fn['neutral']} · risk {fn['risk']} · no-liquidity {fn['no_liq']})."
+        f"(neutral {fn['neutral']} · risk {fn['risk']} · no-edge {fn['no_edge']})."
     )
 
 
