@@ -9,10 +9,30 @@
 
 A production-grade algorithmic trading bot for **Polymarket's 15-minute BTC price prediction markets**. Built with a 7-phase architecture combining multiple signal sources, professional risk management, and self-learning capabilities.
 
+---
+
+## 🔬 Findings — why this isn't deployed (read first)
+
+**This strategy wins 92% of trades and still loses money.** Over the full
+backfilled history (19,182 markets, 17,202 trades) it returns **−$65.91 / ROI
+−0.38%** net of realistic fees, and **−$64.11 in the current fee regime** alone.
+The 92% win rate is a negative-skew "pick up pennies" payoff where the ~7¢
+round-trip fee is larger than the per-trade edge.
+
+This repo is therefore presented as an **honest negative result**: a complete,
+friction-aware research apparatus (full dataset, fee-regime backtester, event-
+sourced decision log, a pre-registered out-of-sample + Deflated-Sharpe gate that
+has accepted **0 of 9** automated improvement attempts) that correctly *killed*
+the strategy with statistics rather than overfitting it into a pretty curve.
+
+👉 **See [`REPORT.md`](REPORT.md) for the full evidence**, and
+[`build-steps/PREREGISTRATION.md`](build-steps/PREREGISTRATION.md) for the
+pre-registered evaluation protocol. Do **not** run this against live capital.
 
 ---
 
 ## 📋 **Table of Contents**
+- [Findings (why this isn't deployed)](#-findings--why-this-isnt-deployed-read-first)
 - [Features](#features)
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
