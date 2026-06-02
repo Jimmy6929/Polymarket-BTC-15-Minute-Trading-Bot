@@ -240,7 +240,7 @@ def trade_stats(trades: list[dict]) -> dict:
 # --------------------------------------------------------------------------- #
 # Rendering
 # --------------------------------------------------------------------------- #
-def _status_panel(info: dict, start_ts: datetime, proc_alive: bool) -> Panel:
+def _status_panel(info: dict, start_ts: datetime, proc_alive: bool, restarting: bool = False) -> Panel:
     up = datetime.now(timezone.utc) - start_ts
     h, rem = divmod(int(up.total_seconds()), 3600)
     mnt, sec = divmod(rem, 60)
@@ -249,7 +249,9 @@ def _status_panel(info: dict, start_ts: datetime, proc_alive: bool) -> Panel:
     def dot(ok: bool, label: str, style_ok: str = "bold green") -> Text:
         return Text("● ", style=style_ok if ok else "bold red") + Text(label, style="white")
 
-    if not proc_alive:
+    if restarting:
+        state = Text("● restarting bot…", style="bold yellow")
+    elif not proc_alive:
         state = Text("● STOPPED", style="bold red")
     elif info["crashed"]:
         state = Text("● ERROR (see log)", style="bold red")
@@ -273,7 +275,8 @@ def _status_panel(info: dict, start_ts: datetime, proc_alive: bool) -> Panel:
         Text(f"Market:  {info['market'] or '—'}", style="cyan"),
         Text(f"Next switch: {info['next_switch'] or '—'}   Uptime: {uptime}", style="dim"),
     )
-    return Panel(body, title="[bold]Status[/bold]", border_style="green" if proc_alive else "red")
+    border = "green" if proc_alive else ("yellow" if restarting else "red")
+    return Panel(body, title="[bold]Status[/bold]", border_style=border)
 
 
 def _stats_panel(stats: dict) -> Panel:
@@ -389,14 +392,18 @@ def render(
     recent_blocks: list[tuple[str, str]],
     start_ts: datetime,
     proc_alive: bool,
+    restarts: int = 0,
+    restarting: bool = False,
 ) -> Group:
     header = Panel(
         Text("Polymarket BTC 15-min — Paper Trader", style="bold white", justify="center"),
         border_style="bright_black",
     )
-    top = Columns([_status_panel(info, start_ts, proc_alive), _stats_panel(stats)], equal=True, expand=True)
+    top = Columns([_status_panel(info, start_ts, proc_alive, restarting), _stats_panel(stats)], equal=True, expand=True)
+    state = "running" if proc_alive else ("restarting…" if restarting else "STOPPED")
+    rtxt = f" · restarts: {restarts}" if restarts else ""
     footer = Text(
-        f"Ctrl-C to stop · logs → {DEFAULT_LOG.name} · {'running' if proc_alive else 'STOPPED'}",
+        f"Ctrl-C to stop · logs → {DEFAULT_LOG.name}{rtxt} · {state}",
         style="dim", justify="center",
     )
     return Group(header, top, _funnel_panel(funnel, recent_blocks), _trades_table(trades), footer)
@@ -445,27 +452,69 @@ def run(
             raise typer.Exit(1)
 
     console.print("[bold green]Starting paper trader (data-only, no account, no orders)…[/bold green]")
+    console.print(
+        "[dim]Supervised: the bot is relaunched automatically (including its ~90-min "
+        "filter refresh) and keeps running until you press Ctrl-C.[/dim]"
+    )
+    # One log file for the whole session. The bot is relaunched into the SAME open
+    # handle so its output keeps appending and the tailer/funnel accumulate across
+    # restarts. Do NOT reopen with "w" per restart — that truncates the file under
+    # the tailer's byte offset and the dashboard would go blank after the first one.
     log_fh = open(log_file, "w")
-    proc = subprocess.Popen([PYTHON, str(BOT)], stdout=log_fh, stderr=subprocess.STDOUT, cwd=str(REPO))
     start_ts = datetime.now(timezone.utc)
-
     tailer = LogTailer(log_file)
+
+    def _spawn() -> subprocess.Popen:
+        return subprocess.Popen([PYTHON, str(BOT)], stdout=log_fh, stderr=subprocess.STDOUT, cwd=str(REPO))
+
+    # A bot that exits within FAST_CRASH_SECS counts as a fast crash; MAX_FAST_CRASHES
+    # in a row means something is genuinely broken (bad creds, port clash, import
+    # error) and relaunching forever would just spin — so we stop and surface it
+    # rather than hide a hard failure behind the supervisor. A normal exit is the
+    # bot's ~90-min self-restart, which runs far longer and resets the counter.
+    FAST_CRASH_SECS = 20
+    MAX_FAST_CRASHES = 5
+
     interrupted = False
+    crashloop = False
+    restarts = 0
+    fast_crashes = 0
+    proc = None
+
+    def _draw(live, alive: bool, restarting: bool = False) -> None:
+        info = tailer.update()
+        trades = load_trades()
+        live.update(
+            render(info, trade_stats(trades), trades, tailer.funnel, tailer.recent_blocks,
+                   start_ts, alive, restarts, restarting),
+            refresh=True,
+        )
+
     try:
         with Live(console=console, screen=False, refresh_per_second=4, auto_refresh=False) as live:
-            while proc.poll() is None:
-                info = tailer.update()
-                trades = load_trades()
-                live.update(render(info, trade_stats(trades), trades, tailer.funnel, tailer.recent_blocks, start_ts, True), refresh=True)
-                time.sleep(refresh)
-            # process exited on its own
-            info = tailer.update()
-            trades = load_trades()
-            live.update(render(info, trade_stats(trades), trades, tailer.funnel, tailer.recent_blocks, start_ts, False), refresh=True)
+            proc = _spawn()
+            launched_at = time.monotonic()
+            while True:
+                if proc.poll() is None:
+                    _draw(live, alive=True)
+                    time.sleep(refresh)
+                    continue
+                # --- bot process exited: its ~90-min self-restart, or a crash ---
+                ran_for = time.monotonic() - launched_at
+                fast_crashes = fast_crashes + 1 if ran_for < FAST_CRASH_SECS else 0
+                if fast_crashes >= MAX_FAST_CRASHES:
+                    crashloop = True
+                    _draw(live, alive=False)
+                    break
+                restarts += 1
+                _draw(live, alive=False, restarting=True)
+                time.sleep(min(5.0, refresh))  # brief backoff, stays Ctrl-C responsive
+                proc = _spawn()
+                launched_at = time.monotonic()
     except KeyboardInterrupt:
         interrupted = True
     finally:
-        if proc.poll() is None:
+        if proc is not None and proc.poll() is None:
             proc.send_signal(signal.SIGINT)
             try:
                 proc.wait(timeout=10)
@@ -478,13 +527,17 @@ def run(
     console.print()
     if interrupted:
         console.print("[yellow]Stopped by user.[/yellow]")
-    elif proc.returncode not in (0, -signal.SIGINT):
-        console.print(f"[bold red]Bot exited unexpectedly (code {proc.returncode}). See {log_file}.[/bold red]")
+    elif crashloop:
+        console.print(
+            f"[bold red]Bot crashed {MAX_FAST_CRASHES}× in a row (under {FAST_CRASH_SECS}s each) — "
+            f"stopping instead of relaunching. See {log_file}.[/bold red]"
+        )
     fn = tailer.funnel
     blocked = fn["neutral"] + fn["risk"] + fn["no_liq"]
     console.print(
         f"Session: [bold]{s['total']}[/bold] trades "
-        f"([green]{s['wins']}W[/green]/[red]{s['losses']}L[/red]/[yellow]{s['pending']} pending[/yellow]). "
+        f"([green]{s['wins']}W[/green]/[red]{s['losses']}L[/red]/[yellow]{s['pending']} pending[/yellow])"
+        f"{f' · {restarts} bot restart(s)' if restarts else ''}. "
         f"Logs: {log_file}"
     )
     console.print(
