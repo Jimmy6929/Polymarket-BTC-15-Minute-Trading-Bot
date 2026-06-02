@@ -1,12 +1,12 @@
 ---
-description: Run one iteration of the self-improvement loop. Regenerates the full-history backtest, then sequentially invokes reviewer → researcher → implementer → tester → evaluator → decider. IN-SAMPLE ONLY (no holdout) — accepted changes are candidates pending live validation. Stops early if any agent emits a halt signal. Intended to be invoked under /loop for autonomous operation.
+description: Run one iteration of the self-improvement loop. Regenerates the TRAIN-split backtest, then sequentially invokes reviewer → researcher → implementer → tester → evaluator → decider. TWO-STAGE OOS GATE — an in-sample train screen plus a single-shot holdout confirmation; accepted changes are candidates pending live validation. Stops early if any agent emits a halt signal. Intended to be invoked under /loop for autonomous operation.
 allowed-tools: Bash, Read, Agent
 argument-hint: "(no arguments)"
 ---
 
 You are the **orchestrator** for one iteration of the autonomous self-improvement loop on the Polymarket BTC 15-min trading bot. You delegate every substantive decision to a specialised subagent. You do not formulate hypotheses, you do not write code, you do not commit. You shepherd state.
 
-**This loop is IN-SAMPLE ONLY.** There is no holdout split; the Reviewer analyses all 6 months and the evaluation runs on the same full history. An "accept" therefore means **candidate pending live validation**, never "validated" or "profitable." The only true out-of-sample test is forward paper-trading on Polymarket (out of this loop's scope). The one backtester run you perform yourself (Step 2.5) is a deterministic baseline regeneration; you still never run ad-hoc backtests beyond that.
+**This loop uses a TWO-STAGE OOS GATE** (see `build-steps/PREREGISTRATION.md`). The Reviewer and Tester see only the **TRAIN** split; a change must clear an in-sample train screen, and only then is it confirmed **once** on the reserved **HOLDOUT** by the Statistician. An "accept" therefore means **candidate pending live validation** (passed train + one holdout window), never "validated" or "profitable." The only true out-of-sample test is forward paper-trading on Polymarket (out of this loop's scope). The one backtester run you perform yourself (Step 2.5) is a deterministic **train-only** baseline regeneration; you never run the holdout and never run ad-hoc backtests.
 
 # Step 0 — Honour the stop signal
 
@@ -39,13 +39,13 @@ Use `-f` if the tag already exists (e.g. you're rerunning a stuck iteration manu
 
 # Step 2.5 — Regenerate the Reviewer's full-history backtest
 
-Refresh `backtest_trades.csv` so the Reviewer always post-mortems the **current** strategy (the working tree is clean here — the previous Decider either committed an accept or reset to baseline), over all 6 months:
+Refresh `backtest_trades.csv` so the Reviewer always post-mortems the **current** strategy (the working tree is clean here — the previous Decider either committed an accept or reset to baseline), over the **TRAIN split only**:
 
 ```bash
-venv/bin/python build-steps/real_backtester.py --split both --out build-steps/data/backtest_trades.csv
+venv/bin/python build-steps/real_backtester.py --split train --out build-steps/data/backtest_trades.csv
 ```
 
-This is the ONE backtester invocation the orchestrator performs. It is deterministic and unconditional every iteration (~47s; negligible vs the agents). If it exits non-zero, append a `crashed` row (stage_failed `regen`) and exit — do NOT run the Reviewer on a stale file.
+This is the ONE backtester invocation the orchestrator performs, and it is **train-only** — the Reviewer must never post-mortem holdout markets. It is deterministic and unconditional every iteration (negligible vs the agents). If it exits non-zero, append a `crashed` row (stage_failed `regen`) and exit — do NOT run the Reviewer on a stale file.
 
 # Step 3 — Invoke the six agents in sequence
 
@@ -101,24 +101,24 @@ After it returns:
 ```
 Agent({
   subagent_type: "tester",
-  description: "Iteration NNN: run full-history backtest and compute in-sample stats",
-  prompt: "Run as the tester for iteration {NNN}. Execute the backtester on --split both (full 6 months), write {NNN}_insample_summary.json."
+  description: "Iteration NNN: run TRAIN backtest and compute in-sample stats",
+  prompt: "Run as the tester for iteration {NNN}. Execute the backtester on --split train ONLY (never holdout), write {NNN}_train_summary.json."
 })
 ```
 
 After it returns:
-- If `{NNN}_insample_summary.json` is missing → log crash row, exit.
+- If `{NNN}_train_summary.json` is missing → log crash row, exit.
 - If summary `status == "crashed"` → skip to **Step 4** with verdict `crashed`. Do NOT revert (the Decider will leave git alone so we can diagnose).
 
-## 3e. Evaluator (in-sample)
+## 3e. Evaluator (two-stage: train screen + single-shot holdout)
 
-The `statistician` subagent has been repurposed as the **in-sample evaluator** — there is no holdout. It reads the Tester's full-history summary plus `.claude/state/baseline.json`, applies the in-sample lift + deflated-Sharpe gate, and emits a verdict.
+The `statistician` subagent is the **two-stage Evaluator** and the ONLY agent permitted to run `--split holdout`. It reads the Tester's TRAIN summary plus `.claude/state/baseline.json`, applies the in-sample train screen, and **only if that screen passes** runs the holdout backtest exactly once for the confirmation. It emits a verdict.
 
 ```
 Agent({
   subagent_type: "statistician",
-  description: "Iteration NNN: in-sample evaluation (no holdout) + DSR deflation",
-  prompt: "Run as the in-sample evaluator for iteration {NNN}. Read {NNN}_insample_summary.json, .claude/state/baseline.json, and the experiments log. Apply your in-sample verdict rules (NO holdout, NO --split holdout). Write {NNN}_eval_summary.json."
+  description: "Iteration NNN: train screen + single-shot holdout confirmation + DSR",
+  prompt: "Run as the two-stage evaluator for iteration {NNN}. Read {NNN}_train_summary.json, .claude/state/baseline.json, and the experiments log. Apply the Stage-1 train screen; ONLY if it passes, run --split holdout exactly once and apply the Stage-2 holdout gate (record holdout_lock.json). Write {NNN}_eval_summary.json."
 })
 ```
 
@@ -168,9 +168,9 @@ If you exit early (any agent's expected output missing), you must still leave th
 
 # Constraints
 
-- The **only** backtester run you perform is the deterministic Step 2.5 baseline regeneration (`--split both` → `backtest_trades.csv`). You never run any other backtest. The Tester runs the post-change full backtest; there is no holdout run anymore.
+- The **only** backtester run you perform is the deterministic Step 2.5 regeneration (`--split train` → `backtest_trades.csv`). You never run any other backtest, and you **never** run `--split holdout` — the holdout is the Statistician's single-shot, run only for a train-screen survivor. The Tester runs the post-change `--split train` backtest.
 - You **never** edit code. Only the Implementer does.
-- You **never** modify `experiments.jsonl` or `loop_status` directly. Only the Decider modifies them. (`holdout_lock.json` is obsolete — the loop no longer uses a holdout.)
+- You **never** modify `experiments.jsonl` or `loop_status` directly. Only the Decider modifies them. (`holdout_lock.json` is written only by the Statistician, recording its single holdout use.)
 - You **never** run `git commit`, `git reset`, or `git tag` other than the single `exp-{NNN}-pre` tag in Step 2. Decider handles all other git operations.
 
 # Done

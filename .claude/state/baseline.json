@@ -1,12 +1,14 @@
 {
-  "overall_ev": -0.004101,
+  "overall_ev": -0.002595,
   "overall_ev_ci": [
-    -0.009059,
-    0.000856
+    -0.007785,
+    0.002538
   ],
-  "n": 16040,
+  "n": 15084,
   "cost_model": "book_spread_v1",
-  "frictionless_overall_ev_for_reference": 0.000513,
-  "note": "Current-HEAD strategy under realistic spread fills. Replaces the hardcoded -0.0024. IN-SAMPLE (full 6mo); not OOS-validated.",
-  "ts_utc": "2026-05-25T13:59:26.269710+00:00"
+  "split": "train",
+  "embargo_hours": 48,
+  "holdout_days": 30,
+  "note": "TRAIN-ONLY baseline (holdout = most recent 30d, reserved; 48h embargo). Not OOS-validated. Used for in-sample lift comparison only.",
+  "ts_utc": "2026-06-02T14:59:20.877658+00:00"
 }
