@@ -1,0 +1,32 @@
+{
+  "generated_at": "2026-06-01T22:03:59.424510+00:00",
+  "regenerate": "python build-steps/fetch_data.py --full",
+  "sources": {
+    "polymarket_btc_15m.json": {
+      "markets": 19182,
+      "with_price_history": 18515,
+      "slug_ts_min": 1760028300,
+      "slug_ts_max": 1780341300,
+      "date_range_utc": [
+        "2025-10-09T16:45:00+00:00",
+        "2026-06-01T19:15:00+00:00"
+      ],
+      "sha256": "e7da1f35caf489e5a2debff6308103f52cc55aaab6d93ced50a6a350e3d2964e",
+      "schema": "list of market dicts keyed by slug_ts; each has yes_price_history (per-min YES prices)"
+    },
+    "coinbase_btc_1min.csv": {
+      "rows": 338905,
+      "date_range_utc": [
+        "2025-10-09T00:00:00+00:00",
+        "2026-06-01T22:02:00+00:00"
+      ],
+      "sha256": "2e206144e7efdc759ceefea639b08df42e244c9685ec1c500236d05bc909f257",
+      "schema": "ts_unix,low,high,open,close,volume (1-min BTC-USD)"
+    },
+    "fear_greed.json": {
+      "rows": 3039,
+      "sha256": "2a943254de7d94e664b7bfc930b6ff7e86c03fd673120ed58d628b87ec8b8127",
+      "schema": "alternative.me daily Fear & Greed values"
+    }
+  }
+}

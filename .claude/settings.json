@@ -1,0 +1,35 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jimmy/Documents/App-project/Polymarket-BTC-15-Minute-Trading-Bot/.claude/hooks/guard.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jimmy/Documents/App-project/Polymarket-BTC-15-Minute-Trading-Bot/.claude/hooks/commit-gate.py"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jimmy/Documents/App-project/Polymarket-BTC-15-Minute-Trading-Bot/.claude/branch_report.py --session-hook"
+          }
+        ]
+      }
+    ]
+  }
+}

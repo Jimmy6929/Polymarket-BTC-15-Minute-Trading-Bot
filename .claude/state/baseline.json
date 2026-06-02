@@ -1,0 +1,12 @@
+{
+  "overall_ev": -0.004101,
+  "overall_ev_ci": [
+    -0.009059,
+    0.000856
+  ],
+  "n": 16040,
+  "cost_model": "book_spread_v1",
+  "frictionless_overall_ev_for_reference": 0.000513,
+  "note": "Current-HEAD strategy under realistic spread fills. Replaces the hardcoded -0.0024. IN-SAMPLE (full 6mo); not OOS-validated.",
+  "ts_utc": "2026-05-25T13:59:26.269710+00:00"
+}

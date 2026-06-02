@@ -74,6 +74,9 @@ trades.json
 trade_history.json
 *.trade
 
+# Research decision log (event-sourced capture; runtime data, can be large)
+decisions.jsonl
+
 # Logs (can contain sensitive info)
 logs/
 *.log
@@ -138,3 +141,28 @@ $RECYCLE.BIN/
 *.swo
 node_modules/
 .cache/
+
+# =============================================================================
+# SELF-IMPROVEMENT LOOP — per-iteration transient state
+# =============================================================================
+# experiments.jsonl / holdout_lock.json / loop_status are UNTRACKED on purpose.
+# The decider runs `git reset --hard exp-NNN-pre` on reject verdicts; if these
+# were tracked, that reset would revert them — wiping the just-appended log row
+# and resetting the holdout lock. Keeping them out of git makes them durable
+# ACROSS resets (which is their whole job). They live on disk; back them up
+# separately if you want version history.
+.claude/state/experiments.jsonl
+.claude/state/holdout_lock.json
+.claude/state/loop_status
+.claude/state/iteration_scratch/*
+!.claude/state/iteration_scratch/.gitkeep
+build-steps/data/runs/*
+!build-steps/data/runs/.gitkeep
+
+# Large raw + derived datasets — regenerable via `python build-steps/fetch_data.py --full`.
+# MANIFEST.json (committed) records their range/count/sha256 so dataset state is
+# reproducible from git without the bytes. splits/ (tiny id lists) stays tracked.
+build-steps/data/*.json
+build-steps/data/*.csv
+build-steps/data/*.bak
+!build-steps/data/MANIFEST.json

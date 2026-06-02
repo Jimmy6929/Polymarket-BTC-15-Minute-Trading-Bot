@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "polymarket-btc-paper"
+version = "0.1.0"
+description = "Terminal UI for the Polymarket BTC-15m data-only paper trader"
+requires-python = ">=3.10"
+dependencies = ["typer>=0.12", "rich>=13"]
+
+[project.scripts]
+paper-trading-run = "paper_cli:run_entry"
+paper-trading-view = "paper_cli:view_entry"
+backtest-run = "backtest_cli:run_entry"
+
+# Explicit module list — disable setuptools auto-discovery (the repo has many
+# unrelated top-level .py files that would otherwise confuse packaging).
+[tool.setuptools]
+py-modules = ["paper_cli", "backtest_cli"]
