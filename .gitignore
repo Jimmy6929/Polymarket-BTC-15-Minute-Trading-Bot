@@ -74,6 +74,9 @@ trades.json
 trade_history.json
 *.trade
 
+# Research decision log (event-sourced capture; runtime data, can be large)
+decisions.jsonl
+
 # Logs (can contain sensitive info)
 logs/
 *.log

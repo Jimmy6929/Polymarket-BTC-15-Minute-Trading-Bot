@@ -308,6 +308,25 @@ class IntegratedBTCStrategy(Strategy):
         # Crash recovery: reload any prior paper trades and re-queue PENDING ones.
         self._load_paper_trades()
 
+        # --- Research decision log (event-sourced, append-only JSONL) ---------
+        # Every minute-13 decision (executed AND skipped) is captured with its
+        # point-in-time feature vector + per-processor signals, then a separate
+        # `resolution` event records the realized outcome + counterfactual P&L
+        # (what each choice WOULD have earned), so the trades the guards block
+        # are studyable, not lost. The blotter (paper_trades.json) is a view of
+        # the executed subset; this is the primary research store.
+        self._decisions_log_path = 'decisions.jsonl'
+        # decision_id -> pending entry awaiting counterfactual resolution.
+        self._pending_decisions: dict = {}
+        # window_key (market_start_ts, sub_interval) -> last recorded action,
+        # so the retry-on-block storm collapses to one decision record per window
+        # ('opened' is terminal and upgrades a prior 'skipped').
+        self._captured_decision_windows: dict = {}
+        # Stashed by on_quote_tick just before dispatching a decision, so the
+        # decision coroutine (which only receives a price) knows which window it
+        # is deciding. None until the first in-window tick.
+        self._decision_window_ctx: Optional[dict] = None
+
         self.test_mode = test_mode
 
         if test_mode:
@@ -713,6 +732,12 @@ class IntegratedBTCStrategy(Strategy):
             except Exception as e:
                 logger.warning(f"Paper trade resolver crashed: {e}")
 
+            # Settle the research decision log's counterfactuals (executed + skipped)
+            try:
+                await self._resolve_pending_decisions()
+            except Exception as e:
+                logger.warning(f"Decision resolver crashed: {e}")
+
             await asyncio.sleep(10)
 
     # ------------------------------------------------------------------
@@ -830,6 +855,17 @@ class IntegratedBTCStrategy(Strategy):
 
             if TRADE_WINDOW_START <= seconds_into_sub_interval < TRADE_WINDOW_END and trade_key != self.last_trade_time:
                 self.last_trade_time = trade_key
+
+                # Stash the window identity so the decision coroutine (which only
+                # receives a price) can attribute its record to this market window.
+                self._decision_window_ctx = {
+                    "slug": current_market.get("slug"),
+                    "condition_id": current_market.get("condition_id"),
+                    "yes_token_id": self._yes_token_id,
+                    "market_start_ts": market_start_ts,
+                    "sub_interval": sub_interval,
+                    "seconds_into_window": float(seconds_into_sub_interval),
+                }
 
                 logger.info("=" * 80)
                 logger.info(f" LATE-WINDOW TRADE: {now.strftime('%Y-%m-%d %H:%M:%S')} UTC")
@@ -963,6 +999,7 @@ class IntegratedBTCStrategy(Strategy):
         # --- Minimum history guard ---
         if len(self.price_history) < 20:
             logger.warning(f"Not enough price history ({len(self.price_history)}/20)")
+            self._capture_decision("skipped", "insufficient_history", None, current_price, None, None, None)
             return
 
         logger.info(f"Current price: ${float(current_price):,.4f}")
@@ -975,6 +1012,7 @@ class IntegratedBTCStrategy(Strategy):
 
         if not signals:
             logger.info("No signals generated — no trade this interval")
+            self._capture_decision("skipped", "no_signal", None, current_price, None, None, metadata)
             return
 
         logger.info(f"Generated {len(signals)} signal(s):")
@@ -991,6 +1029,7 @@ class IntegratedBTCStrategy(Strategy):
         fused = self.fusion_engine.fuse_signals(signals, min_signals=1, min_score=40.0)
         if not fused:
             logger.info("Fusion produced no actionable signal — no trade this interval")
+            self._capture_decision("skipped", "no_fusion", None, current_price, signals, None, metadata)
             return
 
         logger.info(
@@ -1037,6 +1076,7 @@ class IntegratedBTCStrategy(Strategy):
                 f"⏭ TREND: NEUTRAL ({price_float:.2%}) — price too close to 0.50, SKIPPING trade "
                 f"(coin flip territory: {TREND_DOWN_THRESHOLD:.0%}–{TREND_UP_THRESHOLD:.0%})"
             )
+            self._capture_decision("skipped", "neutral", None, current_price, signals, fused, metadata)
             return
 
         # Risk engine: only check position-count / exposure limits (no sizing math)
@@ -1047,6 +1087,7 @@ class IntegratedBTCStrategy(Strategy):
         )
         if not is_valid:
             logger.warning(f"Risk engine blocked trade: {error}")
+            self._capture_decision("skipped", "risk_blocked", direction, current_price, signals, fused, metadata)
             return
 
         logger.info(f"Position size: $1.00 (fixed) | Direction: {direction.upper()}")
@@ -1069,18 +1110,21 @@ class IntegratedBTCStrategy(Strategy):
                 logger.warning(
                     f"⚠ No edge for BUY: ask=${float(last_ask):.4f} ≥ {float(1 - MIN_EDGE):.2f} — skipping trade, will retry next tick"
                 )
+                self._capture_decision("skipped", "no_edge", direction, current_price, signals, fused, metadata)
                 self.last_trade_time = -1  # Allow retry next tick
                 return
             if direction == "short" and last_bid <= MIN_EDGE:
                 logger.warning(
                     f"⚠ No edge for SELL: bid=${float(last_bid):.4f} ≤ {float(MIN_EDGE):.2f} — skipping trade, will retry next tick"
                 )
+                self._capture_decision("skipped", "no_edge", direction, current_price, signals, fused, metadata)
                 self.last_trade_time = -1  # Allow retry next tick
                 return
 
         # --- Phase 5 / 6: Execute ---
         if is_simulation:
             await self._record_paper_trade(fused, POSITION_SIZE_USD, current_price, direction, metadata)
+            self._capture_decision("opened", f"trend_{direction}", direction, current_price, signals, fused, metadata)
         else:
             await self._place_real_order(fused, POSITION_SIZE_USD, current_price, direction)
 
@@ -1312,6 +1356,197 @@ class IntegratedBTCStrategy(Strategy):
                     os.remove(tmp)
         except Exception as e:
             logger.error(f"Failed to save paper trades: {e}")
+
+    # ------------------------------------------------------------------
+    # Research decision log (event-sourced JSONL) — Phase 1 & 2
+    # ------------------------------------------------------------------
+    def _append_decision_event(self, record: dict) -> None:
+        """Append one JSON line to decisions.jsonl. Append-only + flushed, so it
+        is crash-safe and never rewrites prior events. NEVER raises — capture must
+        not be able to break the trade path."""
+        import json
+        try:
+            with open(self._decisions_log_path, 'a') as f:
+                f.write(json.dumps(record) + '\n')
+                f.flush()
+        except Exception as e:
+            logger.debug(f"decision-log append failed (non-fatal): {e}")
+
+    def _capture_decision(self, action: str, reason: str, direction: Optional[str],
+                          current_price, signals=None, fused=None, metadata=None) -> None:
+        """Record ONE decision event per market window (executed or skipped) with its
+        point-in-time feature vector + per-processor signals. Deduped per
+        (market_start_ts, sub_interval) so the retry-on-block storm collapses to one
+        record; 'opened' is terminal and upgrades a prior 'skipped'. The would-be
+        fill is captured even when skipped, so the counterfactual is computable later.
+        NEVER raises."""
+        try:
+            ctx = self._decision_window_ctx
+            if not ctx:
+                return  # no window context (decision fired outside a tracked window)
+            window_key = (ctx.get("market_start_ts"), ctx.get("sub_interval"))
+            prev = self._captured_decision_windows.get(window_key)
+            if prev == "opened" or prev == action:
+                return  # terminal, or already recorded in this state (retry storm)
+            self._captured_decision_windows[window_key] = action
+
+            now = datetime.now(timezone.utc)
+            decision_id = f"dec_{ctx.get('market_start_ts')}_{ctx.get('sub_interval')}"
+
+            bid = ask = None
+            ba = getattr(self, "_last_bid_ask", None)
+            if ba and ba[0] is not None and ba[1] is not None:
+                bid, ask = float(ba[0]), float(ba[1])
+            mid = float(current_price) if current_price is not None else None
+            would_fill_long = ask if ask is not None else mid    # a BUY crosses the ask
+            would_fill_short = bid if bid is not None else mid    # a SELL rests at the bid
+            half_spread = (ask - bid) / 2.0 if (bid is not None and ask is not None and ask > bid) else None
+
+            md = metadata or {}
+            features = {
+                k: md.get(k) for k in
+                ("deviation", "momentum", "volatility", "sentiment_score",
+                 "sentiment_classification", "spot_price")
+            }
+
+            sig_list = []
+            for s in (signals or []):
+                try:
+                    sig_list.append({
+                        "source": s.source,
+                        "direction": s.direction.value,
+                        "strength": s.strength.value,
+                        "score": round(float(s.score), 4),
+                        "confidence": round(float(s.confidence), 4),
+                        "metadata": s.metadata or {},
+                    })
+                except Exception:
+                    continue
+
+            fused_obj = None
+            if fused is not None:
+                try:
+                    fused_obj = {
+                        "direction": fused.direction.value,
+                        "score": round(float(fused.score), 4),
+                        "confidence": round(float(fused.confidence), 4),
+                    }
+                except Exception:
+                    fused_obj = None
+
+            record = {
+                "schema_version": 1,
+                "event": "decision",
+                "decision_id": decision_id,
+                "ts": now.isoformat(),
+                "market": {
+                    "slug": ctx.get("slug"),
+                    "condition_id": ctx.get("condition_id"),
+                    "yes_token_id": ctx.get("yes_token_id"),
+                    "market_start_ts": ctx.get("market_start_ts"),
+                    "sub_interval": ctx.get("sub_interval"),
+                    "seconds_into_window": ctx.get("seconds_into_window"),
+                },
+                "action": action,
+                "reason": reason,
+                "direction": direction,
+                "poly": {
+                    "mid": mid, "bid": bid, "ask": ask,
+                    "half_spread": half_spread,
+                    "would_fill_long": would_fill_long,
+                    "would_fill_short": would_fill_short,
+                },
+                "spot_btc": md.get("spot_price"),
+                "features": features,
+                "signals": sig_list,
+                "fused": fused_obj,
+                "trade_id": (f"paper_{int(now.timestamp())}" if action == "opened" else None),
+            }
+            self._append_decision_event(record)
+
+            # Queue for counterfactual resolution (executed AND skipped). resolution_time
+            # mirrors the trade resolver: end of this market + small buffer.
+            if self.test_mode:
+                res_time = now + timedelta(minutes=1)
+            elif self.next_switch_time:
+                res_time = self.next_switch_time + timedelta(seconds=5)
+            else:
+                res_time = now + timedelta(minutes=15)
+            self._pending_decisions[decision_id] = {
+                "decision_id": decision_id,
+                "slug": ctx.get("slug"),
+                "resolution_time": res_time,
+                "direction": direction,
+                "would_fill_long": would_fill_long,
+                "would_fill_short": would_fill_short,
+                "mid": mid,
+            }
+        except Exception as e:
+            logger.debug(f"decision capture failed (non-fatal): {e}")
+
+    async def _resolve_pending_decisions(self) -> None:
+        """Append a `resolution` event for each due decision (executed AND skipped),
+        computing the realized counterfactual P&L of BOTH directions via the same
+        Gamma outcome the trade resolver uses. This is what makes the trades the
+        guards blocked studyable. NEVER raises into the timer loop."""
+        try:
+            if not self._pending_decisions:
+                return
+            now = datetime.now(timezone.utc)
+            due = [e for e in self._pending_decisions.values()
+                   if e.get("resolution_time") and now >= e["resolution_time"]]
+            if not due:
+                return
+
+            from paper_resolution import fetch_market_resolution
+
+            def _pnl(direction: str, f: Optional[float], yes_won: bool):
+                """Net P&L for a $1 bet at fill f (YES-equivalent price), binary payout."""
+                if f is None:
+                    return None
+                f = min(0.9999, max(0.0001, float(f)))
+                size = 1.0
+                if direction == "long":
+                    payout = size * (1.0 - f) / f if yes_won else -size
+                else:  # short
+                    payout = size * f / (1.0 - f) if (not yes_won) else -size
+                fee = size * 4.0 * f * (1.0 - f) * POLYMARKET_FEE_PEAK
+                return round(payout - fee, 6)
+
+            resolved_ids = []
+            for entry in due:
+                slug = entry.get("slug")
+                if not slug:
+                    resolved_ids.append(entry["decision_id"])  # unresolvable — drop
+                    continue
+                yes_won = fetch_market_resolution(slug)
+                if yes_won is None:
+                    continue  # not settled yet / transient — retry next tick
+
+                pnl_if_long = _pnl("long", entry.get("would_fill_long"), yes_won)
+                pnl_if_short = _pnl("short", entry.get("would_fill_short"), yes_won)
+                taken = entry.get("direction")
+                pnl_if_taken = (pnl_if_long if taken == "long"
+                                else pnl_if_short if taken == "short" else None)
+
+                self._append_decision_event({
+                    "schema_version": 1,
+                    "event": "resolution",
+                    "decision_id": entry["decision_id"],
+                    "ts": now.isoformat(),
+                    "yes_won": bool(yes_won),
+                    "exit_price": 1.0 if yes_won else 0.0,
+                    "pnl_if_long": pnl_if_long,
+                    "pnl_if_short": pnl_if_short,
+                    "pnl_if_taken": pnl_if_taken,
+                    "source": "gamma_actual",
+                })
+                resolved_ids.append(entry["decision_id"])
+
+            for did in resolved_ids:
+                self._pending_decisions.pop(did, None)
+        except Exception as e:
+            logger.debug(f"decision resolution failed (non-fatal): {e}")
 
     def _load_paper_trades(self):
         """Reload persisted paper trades on startup (crash recovery). PENDING trades

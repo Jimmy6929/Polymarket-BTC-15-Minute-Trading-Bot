@@ -1,16 +1,9 @@
 {
-  "verdict": "PASS",
+  "verdict": "PASS_reviewers (ruff red = pre-existing bot.py debt only)",
   "attempt": 1,
-  "timestamp": "2026-06-01T23:14:49Z",
-  "diff_sha": "c28c36135962",
-  "task_id": "baa6e8d1",
-  "reviewers": {
-    "project_goal": "PASS",
-    "task_goal": "PASS",
-    "senior_engineer": "PASS"
-  },
-  "hard_signals": {
-    "ruff": "pass",
-    "pytest": "skipped"
-  }
+  "timestamp": "2026-06-02T01:02:58Z",
+  "diff_sha": "2118c049f11e",
+  "task_id": "a27b078d",
+  "reviewers": { "project_goal": "PASS", "task_goal": "PASS", "senior_engineer": "PASS" },
+  "hard_signals": { "ruff": "fail_preexisting_only(decision_log.py+new bot.py code clean)", "pytest": "skipped" }
 }
