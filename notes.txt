@@ -1,0 +1,79 @@
+A JS quant does not see this and laugh. They see someone who'd pass the first-round research
+  interview, because the deliverable was an honest falsification, not a pretty equity curve.
+
+  Where they'd still put the knife in
+
+  1. "You've proven the null. So why are you still feeding the corpse?" This is the big one. The loop is
+  hill-climbing for an edge on a strategy whose losing clusters are — your own words in the post-mortem
+  — intrinsically negative pre-fee. The pre-registration says H0 is well-supported before the loop 
+  runs. The post-mortem says "the real unlock is a human decision, not more iterations." A desk reads
+  that and asks the uncomfortable question: you already know the answer, so the loop isn't research
+  anymore — it's motion that feels like progress. They'd kill it today, not at the iter-10 auto-stop.
+  Searching an empty set more efficiently doesn't make it non-empty.
+
+  2. "There was never an edge to find — you're forecasting 2 minutes of BTC." Entering at minute 13 of a
+  15-minute window is a bet on ~2 minutes of BTC direction, off a price derived from the same spot 
+  you're trying to predict. That's the single most unforecastable thing on the menu. The 92% win rate
+  was never an edge; it's just the price of a deep favorite. So the loop is doing a rigorous,
+  pre-registered, deflated-Sharpe search over a hypothesis space that was empty by construction. They'd
+  respect the rigor and still say: the rigor is being spent in the wrong place.
+
+  3. "You modeled the only losing side and ignored the only winning one." Everything here is
+  spread-crossed taker fills, where crypto now eats up to ~1.8% (or ~7¢ round-trip in your cost model).
+  The structurally viable side — maker, 0% fee + 20–25% rebate — isn't modeled at all. You've
+  exhaustively buried the taker side and never looked at the side that could conceivably work. If
+  there's a next dollar of trading effort, that's where it goes.
+
+  4. "Even your 'winning' regime isn't a business." +$22 over 4,954 no-fee trades is ~0.45¢/trade on
+  thin 15-min books. Zero capacity. Even in the fantasy regime there's no scalable money — which
+  actually strengthens your conclusion, so lean on it.
+
+  5. The badges undercut you. "Production-grade," "7-phase architecture," Nautilus + Redis + Grafana,
+  "self-learning" — a quant raises an eyebrow: you built a production execution-and-monitoring stack for
+  a strategy with no edge. That's effort in reverse order; edge falsification is cheap and comes first,
+  infra is expensive and comes last. (The Findings section up top redeems most of this — but they'd
+  still note you learned the ordering the expensive way.)
+
+  The thing they'd actually say out loud
+
+  ▎ "The best trade in this whole repo is the one you didn't make. The strategy is correctly dead — stop
+  ▎ optimizing a corpse. What you actually built is a friction-aware research apparatus and a clean 
+  ▎ dataset that produced an honest negative result, and that's a genuinely strong portfolio piece. Ship
+  ▎ it as that. If you want PnL instead of a methodology demo, the taker direction is settled — go look
+  ▎ at the maker side or a different market, with this same honesty bar. But don't dress up 'I
+  ▎ rigorously confirmed there's no edge' as 'I'm still searching for one.'"
+
+  Which lines up with your own project thesis (CLAUDE.md): the dataset and the portfolio-grade repo are
+  the real assets; PnL was never the primary one. The JS read just makes it sharper — you've already won
+  the version of this game that was winnable. The open decision isn't statistical, it's allocation:
+  declare victory on the methodology piece, or re-aim at the maker side. Those are different projects.\
+
+
+  The half they'd tear apart
+
+  Now the trench coat opens. The README sells "multiple signal sources," "self-learning capabilities," a
+  "7-phase architecture," "production-grade." The code says otherwise, and a quant checks:
+
+  - "Multiple signal sources" is false. Six signal processors run, fuse with weighted voting… and then
+  the fused direction is thrown away and overwritten by a one-line trend rule: if mid > 0.60 buy YES, if
+  < 0.40 buy NO, else skip (bot.py:1044-1080). The entire signal/fusion stack is logged-but-ignored.
+  The actual strategy is "buy the price you see." The fusion engine is working theater.
+  - "Self-learning" is false in a way that's almost poetic. The learning engine adjusts weights based on
+  performance_tracker.get_trade_history() — and performance_tracker is never written to anywhere in the
+  bot. It optimizes over an empty list. It is also never called in the main loop.
+  (feedback/learning_engine.py:196-249, confirmed independently.)
+  - The execution layer cannot touch live capital, full stop. Order IDs are
+  f"order_{counter}_{timestamp}" — non-idempotent, the counter resets on crash, so a reconnect can
+  double-submit (execution_engine.py:234). There's no websocket reconnection logic, no fill-event
+  listener (so a live fill never creates a position — the callbacks only fire in dry-run), order state
+  is in-memory only, and polymarket_client.py — labeled "Production Implementation" — is unintegrated 
+  dead code whose get_btc_market() returns a hardcoded mock with a TODO. The live path runs through
+  Nautilus as fire-and-forget.
+  - The infra is built for a live stage that doesn't exist. Grafana 12-panel dashboard, Prometheus
+  exporter, Redis mode-switching — all present, all idle, none wired into anything that runs. The loop's
+  actual durable state is plain JSON files in .claude/state/ (which, credit where due, is the right
+  tool and works).
+
+  The one piece of the engineering that's genuinely sound: the risk engine enforces limits pre-trade ($1
+  size, $10 exposure, rejects before submission). Though even there — no daily reset, no kill-switch
+  halt on repeated rejects, drawdown measured off a hardcoded $1000 peak

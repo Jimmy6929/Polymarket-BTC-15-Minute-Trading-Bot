@@ -166,3 +166,7 @@ build-steps/data/*.json
 build-steps/data/*.csv
 build-steps/data/*.bak
 !build-steps/data/MANIFEST.json
+# Perp datasets (regenerable via perps_fetch.py / perps_fetch_universe.py).
+# Keep the small manifest/universe/splits JSONs; ignore the large raw CSVs.
+build-steps/data/perps/*.csv
+build-steps/data/perps/*.bak

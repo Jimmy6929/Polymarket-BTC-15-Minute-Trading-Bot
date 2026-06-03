@@ -1,0 +1,810 @@
+{
+  "generated_at": "2026-06-03T12:59:49.956000+00:00",
+  "selection": "top USDT PERPETUAL TRADING by 24h quoteVolume",
+  "survivorship_note": "current-liquidity selection omits delisted coins (upward bias); holdout is the mitigant",
+  "n": 80,
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "LABUSDT",
+    "SOLUSDT",
+    "ZECUSDT",
+    "HYPEUSDT",
+    "XRPUSDT",
+    "BNBUSDT",
+    "NEARUSDT",
+    "WLDUSDT",
+    "DOGEUSDT",
+    "ENAUSDT",
+    "1000PEPEUSDT",
+    "SUIUSDT",
+    "XLMUSDT",
+    "ADAUSDT",
+    "ONDOUSDT",
+    "BCHUSDT",
+    "TONUSDT",
+    "TAOUSDT",
+    "LITUSDT",
+    "FILUSDT",
+    "HUSDT",
+    "LINKUSDT",
+    "PORTALUSDT",
+    "AVAXUSDT",
+    "SKYAIUSDT",
+    "APRUSDT",
+    "HOMEUSDT",
+    "FETUSDT",
+    "INJUSDT",
+    "LTCUSDT",
+    "CLOUSDT",
+    "PUMPUSDT",
+    "DOTUSDT",
+    "UBUSDT",
+    "ICPUSDT",
+    "USUSDT",
+    "VVVUSDT",
+    "AAVEUSDT",
+    "PIEVERSEUSDT",
+    "ASTERUSDT",
+    "ALLOUSDT",
+    "GENIUSUSDT",
+    "RENDERUSDT",
+    "UNIUSDT",
+    "EPICUSDT",
+    "SLXUSDT",
+    "EDGEUSDT",
+    "TRUMPUSDT",
+    "VIRTUALUSDT",
+    "\u5e01\u5b89\u4eba\u751fUSDT",
+    "TRXUSDT",
+    "BIOUSDT",
+    "PLAYUSDT",
+    "OPUSDT",
+    "JTOUSDT",
+    "DEXEUSDT",
+    "DASHUSDT",
+    "PENGUUSDT",
+    "ARBUSDT",
+    "MYXUSDT",
+    "USELESSUSDT",
+    "APTUSDT",
+    "FARTCOINUSDT",
+    "BILLUSDT",
+    "HBARUSDT",
+    "CHIPUSDT",
+    "PAXGUSDT",
+    "AIAUSDT",
+    "1000SHIBUSDT",
+    "XMRUSDT",
+    "TAUSDT",
+    "SEIUSDT",
+    "OPGUSDT",
+    "XPLUSDT",
+    "WLFIUSDT",
+    "CHZUSDT",
+    "1000BONKUSDT",
+    "ETCUSDT"
+  ],
+  "detail": {
+    "BTCUSDT": {
+      "quote_volume_24h": 26098643664.78,
+      "kline_rows": 2460,
+      "kline_range": [
+        "2019-09-08T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 7375
+    },
+    "ETHUSDT": {
+      "quote_volume_24h": 17400384194.59,
+      "kline_rows": 2380,
+      "kline_range": [
+        "2019-11-27T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 7141
+    },
+    "LABUSDT": {
+      "quote_volume_24h": 2978884603.0672,
+      "kline_rows": 229,
+      "kline_range": [
+        "2025-10-17T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 1419
+    },
+    "SOLUSDT": {
+      "quote_volume_24h": 2514862347.2603,
+      "kline_rows": 2088,
+      "kline_range": [
+        "2020-09-14T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 6342
+    },
+    "ZECUSDT": {
+      "quote_volume_24h": 2512536242.47,
+      "kline_rows": 2310,
+      "kline_range": [
+        "2020-02-05T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 6934
+    },
+    "HYPEUSDT": {
+      "quote_volume_24h": 2145125712.59185,
+      "kline_rows": 369,
+      "kline_range": [
+        "2025-05-30T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 2215
+    },
+    "XRPUSDT": {
+      "quote_volume_24h": 1039748184.4867,
+      "kline_rows": 2340,
+      "kline_range": [
+        "2020-01-06T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 7021
+    },
+    "BNBUSDT": {
+      "quote_volume_24h": 1020033451.211,
+      "kline_rows": 2305,
+      "kline_range": [
+        "2020-02-10T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 6916
+    },
+    "NEARUSDT": {
+      "quote_volume_24h": 842348326.652,
+      "kline_rows": 2057,
+      "kline_range": [
+        "2020-10-15T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 6174
+    },
+    "WLDUSDT": {
+      "quote_volume_24h": 797549815.8603,
+      "kline_rows": 1045,
+      "kline_range": [
+        "2023-07-24T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 3135
+    },
+    "DOGEUSDT": {
+      "quote_volume_24h": 762621576.83659,
+      "kline_rows": 2154,
+      "kline_range": [
+        "2020-07-10T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 6463
+    },
+    "ENAUSDT": {
+      "quote_volume_24h": 481544911.8806,
+      "kline_rows": 792,
+      "kline_range": [
+        "2024-04-02T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 4752
+    },
+    "1000PEPEUSDT": {
+      "quote_volume_24h": 393258748.3090093,
+      "kline_rows": 1125,
+      "kline_range": [
+        "2023-05-05T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 3375
+    },
+    "SUIUSDT": {
+      "quote_volume_24h": 344484804.34853,
+      "kline_rows": 1127,
+      "kline_range": [
+        "2023-05-03T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 3381
+    },
+    "XLMUSDT": {
+      "quote_volume_24h": 340344111.54644,
+      "kline_rows": 2326,
+      "kline_range": [
+        "2020-01-20T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 6981
+    },
+    "ADAUSDT": {
+      "quote_volume_24h": 307122386.7776,
+      "kline_rows": 2315,
+      "kline_range": [
+        "2020-01-31T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 6981
+    },
+    "ONDOUSDT": {
+      "quote_volume_24h": 298420935.79682,
+      "kline_rows": 865,
+      "kline_range": [
+        "2024-01-20T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 5190
+    },
+    "BCHUSDT": {
+      "quote_volume_24h": 286190982.15,
+      "kline_rows": 2358,
+      "kline_range": [
+        "2019-12-19T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 7074
+    },
+    "TONUSDT": {
+      "quote_volume_24h": 226009289.97066,
+      "kline_rows": 824,
+      "kline_range": [
+        "2024-03-01T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 4945
+    },
+    "TAOUSDT": {
+      "quote_volume_24h": 215828600.88,
+      "kline_rows": 783,
+      "kline_range": [
+        "2024-04-11T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 4698
+    },
+    "LITUSDT": {
+      "quote_volume_24h": 209447543.09889,
+      "kline_rows": 162,
+      "kline_range": [
+        "2025-12-23T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 971
+    },
+    "FILUSDT": {
+      "quote_volume_24h": 208304808.356,
+      "kline_rows": 2056,
+      "kline_range": [
+        "2020-10-16T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 6169
+    },
+    "HUSDT": {
+      "quote_volume_24h": 207453189.48368,
+      "kline_rows": 343,
+      "kline_range": [
+        "2025-06-25T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 2353
+    },
+    "LINKUSDT": {
+      "quote_volume_24h": 198499723.298,
+      "kline_rows": 2329,
+      "kline_range": [
+        "2020-01-17T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 6988
+    },
+    "PORTALUSDT": {
+      "quote_volume_24h": 177922860.306974,
+      "kline_rows": 825,
+      "kline_range": [
+        "2024-02-29T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 4950
+    },
+    "AVAXUSDT": {
+      "quote_volume_24h": 173938567.546,
+      "kline_rows": 2079,
+      "kline_range": [
+        "2020-09-23T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 6240
+    },
+    "SKYAIUSDT": {
+      "quote_volume_24h": 150020981.08165,
+      "kline_rows": 386,
+      "kline_range": [
+        "2025-05-13T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 2317
+    },
+    "APRUSDT": {
+      "quote_volume_24h": 146844493.03732,
+      "kline_rows": 223,
+      "kline_range": [
+        "2025-10-23T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 1340
+    },
+    "HOMEUSDT": {
+      "quote_volume_24h": 142845848.272924,
+      "kline_rows": 358,
+      "kline_range": [
+        "2025-06-10T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 2149
+    },
+    "FETUSDT": {
+      "quote_volume_24h": 136914874.2309,
+      "kline_rows": 1233,
+      "kline_range": [
+        "2023-01-17T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 3703
+    },
+    "INJUSDT": {
+      "quote_volume_24h": 136524189.7014,
+      "kline_rows": 1386,
+      "kline_range": [
+        "2022-08-17T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 4161
+    },
+    "LTCUSDT": {
+      "quote_volume_24h": 126318538.9,
+      "kline_rows": 2337,
+      "kline_range": [
+        "2020-01-09T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 7012
+    },
+    "CLOUSDT": {
+      "quote_volume_24h": 126227966.27603,
+      "kline_rows": 232,
+      "kline_range": [
+        "2025-10-14T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 1499
+    },
+    "PUMPUSDT": {
+      "quote_volume_24h": 122671009.535041,
+      "kline_rows": 328,
+      "kline_range": [
+        "2025-07-10T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 2377
+    },
+    "DOTUSDT": {
+      "quote_volume_24h": 119738471.492,
+      "kline_rows": 2111,
+      "kline_range": [
+        "2020-08-22T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 6340
+    },
+    "UBUSDT": {
+      "quote_volume_24h": 119398270.87679,
+      "kline_rows": 264,
+      "kline_range": [
+        "2025-09-12T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 1585
+    },
+    "ICPUSDT": {
+      "quote_volume_24h": 118197058.014,
+      "kline_rows": 1345,
+      "kline_range": [
+        "2022-09-27T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 5548
+    },
+    "USUSDT": {
+      "quote_volume_24h": 117118642.860527,
+      "kline_rows": 173,
+      "kline_range": [
+        "2025-12-12T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 1039
+    },
+    "VVVUSDT": {
+      "quote_volume_24h": 110495416.45241,
+      "kline_rows": 490,
+      "kline_range": [
+        "2025-01-29T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 2942
+    },
+    "AAVEUSDT": {
+      "quote_volume_24h": 107004140.462,
+      "kline_rows": 2056,
+      "kline_range": [
+        "2020-10-16T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 6169
+    },
+    "PIEVERSEUSDT": {
+      "quote_volume_24h": 104490688.8409,
+      "kline_rows": 201,
+      "kline_range": [
+        "2025-11-14T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 1207
+    },
+    "ASTERUSDT": {
+      "quote_volume_24h": 103546316.1829,
+      "kline_rows": 257,
+      "kline_range": [
+        "2025-09-19T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 1543
+    },
+    "ALLOUSDT": {
+      "quote_volume_24h": 100054687.14394,
+      "kline_rows": 204,
+      "kline_range": [
+        "2025-11-11T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 1225
+    },
+    "GENIUSUSDT": {
+      "quote_volume_24h": 98530971.3569,
+      "kline_rows": 48,
+      "kline_range": [
+        "2026-04-16T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 291
+    },
+    "RENDERUSDT": {
+      "quote_volume_24h": 98485750.4563,
+      "kline_rows": 677,
+      "kline_range": [
+        "2024-07-26T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 4063
+    },
+    "UNIUSDT": {
+      "quote_volume_24h": 92796109.488,
+      "kline_rows": 2084,
+      "kline_range": [
+        "2020-09-18T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 6256
+    },
+    "EPICUSDT": {
+      "quote_volume_24h": 86030174.97865,
+      "kline_rows": 447,
+      "kline_range": [
+        "2025-03-13T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 2684
+    },
+    "SLXUSDT": {
+      "quote_volume_24h": 85567817.73791,
+      "kline_rows": 2,
+      "kline_range": [
+        "2026-06-01T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 14
+    },
+    "EDGEUSDT": {
+      "quote_volume_24h": 83263280.3064,
+      "kline_rows": 76,
+      "kline_range": [
+        "2026-03-19T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 456
+    },
+    "TRUMPUSDT": {
+      "quote_volume_24h": 80265243.87255,
+      "kline_rows": 501,
+      "kline_range": [
+        "2025-01-18T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 3006
+    },
+    "VIRTUALUSDT": {
+      "quote_volume_24h": 80210090.31932,
+      "kline_rows": 540,
+      "kline_range": [
+        "2024-12-10T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 3240
+    },
+    "\u5e01\u5b89\u4eba\u751fUSDT": {
+      "quote_volume_24h": 78579556.2399,
+      "kline_rows": 226,
+      "kline_range": [
+        "2025-10-20T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 1357
+    },
+    "TRXUSDT": {
+      "quote_volume_24h": 77305083.68509,
+      "kline_rows": 2331,
+      "kline_range": [
+        "2020-01-15T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 6994
+    },
+    "BIOUSDT": {
+      "quote_volume_24h": 72637570.77997,
+      "kline_rows": 516,
+      "kline_range": [
+        "2025-01-03T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 3908
+    },
+    "PLAYUSDT": {
+      "quote_volume_24h": 69130195.78536,
+      "kline_rows": 307,
+      "kline_range": [
+        "2025-07-31T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 1844
+    },
+    "OPUSDT": {
+      "quote_volume_24h": 66486248.96414,
+      "kline_rows": 1463,
+      "kline_range": [
+        "2022-06-01T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 4390
+    },
+    "JTOUSDT": {
+      "quote_volume_24h": 66264628.9778,
+      "kline_rows": 908,
+      "kline_range": [
+        "2023-12-08T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 5449
+    },
+    "DEXEUSDT": {
+      "quote_volume_24h": 65471545.00935,
+      "kline_rows": 526,
+      "kline_range": [
+        "2024-12-24T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 3157
+    },
+    "DASHUSDT": {
+      "quote_volume_24h": 64622303.67,
+      "kline_rows": 2311,
+      "kline_range": [
+        "2020-02-04T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 6934
+    },
+    "PENGUUSDT": {
+      "quote_volume_24h": 64176971.236223,
+      "kline_rows": 533,
+      "kline_range": [
+        "2024-12-17T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 3198
+    },
+    "ARBUSDT": {
+      "quote_volume_24h": 63956977.4648,
+      "kline_rows": 1168,
+      "kline_range": [
+        "2023-03-23T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 3505
+    },
+    "MYXUSDT": {
+      "quote_volume_24h": 63928812.8683,
+      "kline_rows": 350,
+      "kline_range": [
+        "2025-06-18T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 3568
+    },
+    "USELESSUSDT": {
+      "quote_volume_24h": 62868453.94121,
+      "kline_rows": 292,
+      "kline_range": [
+        "2025-08-15T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 1753
+    },
+    "APTUSDT": {
+      "quote_volume_24h": 62190280.22822,
+      "kline_rows": 1323,
+      "kline_range": [
+        "2022-10-19T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 3972
+    },
+    "FARTCOINUSDT": {
+      "quote_volume_24h": 62060374.76131,
+      "kline_rows": 530,
+      "kline_range": [
+        "2024-12-20T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 3179
+    },
+    "BILLUSDT": {
+      "quote_volume_24h": 61764974.72942,
+      "kline_rows": 27,
+      "kline_range": [
+        "2026-05-07T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 164
+    },
+    "HBARUSDT": {
+      "quote_volume_24h": 60607366.18886,
+      "kline_rows": 1904,
+      "kline_range": [
+        "2021-03-17T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 5713
+    },
+    "CHIPUSDT": {
+      "quote_volume_24h": 59920534.5187,
+      "kline_rows": 48,
+      "kline_range": [
+        "2026-04-16T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 290
+    },
+    "PAXGUSDT": {
+      "quote_volume_24h": 56208420.7168,
+      "kline_rows": 433,
+      "kline_range": [
+        "2025-03-27T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 2600
+    },
+    "AIAUSDT": {
+      "quote_volume_24h": 56010184.46071,
+      "kline_rows": 134,
+      "kline_range": [
+        "2026-01-20T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 2322
+    },
+    "1000SHIBUSDT": {
+      "quote_volume_24h": 54991302.028328,
+      "kline_rows": 1850,
+      "kline_range": [
+        "2021-05-10T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 5550
+    },
+    "XMRUSDT": {
+      "quote_volume_24h": 54918182.58,
+      "kline_rows": 2312,
+      "kline_range": [
+        "2020-02-03T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 6981
+    },
+    "TAUSDT": {
+      "quote_volume_24h": 49402093.10766,
+      "kline_rows": 317,
+      "kline_range": [
+        "2025-07-21T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 1904
+    },
+    "SEIUSDT": {
+      "quote_volume_24h": 47322910.19658,
+      "kline_rows": 1021,
+      "kline_range": [
+        "2023-08-17T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 3066
+    },
+    "OPGUSDT": {
+      "quote_volume_24h": 46104895.2018,
+      "kline_rows": 42,
+      "kline_range": [
+        "2026-04-22T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 252
+    },
+    "XPLUSDT": {
+      "quote_volume_24h": 46079383.3699,
+      "kline_rows": 285,
+      "kline_range": [
+        "2025-08-22T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 1711
+    },
+    "WLFIUSDT": {
+      "quote_volume_24h": 45895413.3901,
+      "kline_rows": 284,
+      "kline_range": [
+        "2025-08-23T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 1705
+    },
+    "CHZUSDT": {
+      "quote_volume_24h": 45116705.78402,
+      "kline_rows": 1959,
+      "kline_range": [
+        "2021-01-21T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 5950
+    },
+    "1000BONKUSDT": {
+      "quote_volume_24h": 44758971.894429,
+      "kline_rows": 924,
+      "kline_range": [
+        "2023-11-22T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 5544
+    },
+    "ETCUSDT": {
+      "quote_volume_24h": 44434121.198,
+      "kline_rows": 2330,
+      "kline_range": [
+        "2020-01-16T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "funding_rows": 6991
+    }
+  }
+}
