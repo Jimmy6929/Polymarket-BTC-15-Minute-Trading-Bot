@@ -1,0 +1,67 @@
+{
+  "generated_at": "2026-06-03T12:37:55.065000+00:00",
+  "regenerate": "python build-steps/perps_fetch.py",
+  "source": "Binance USD-M Futures (fapi) /klines 1d + /fundingRate",
+  "sources": {
+    "BTCUSDT_1d.csv": {
+      "rows": 2460,
+      "added": 2460,
+      "date_range_utc": [
+        "2019-09-08T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "sha256": "44ef132d0a300125eb20f6e8bde5e33fd88a734e82c10ef7266d0ecaffa46e51",
+      "schema": "open_time_ms,close_time_ms,open,high,low,close,volume"
+    },
+    "BTCUSDT_funding.csv": {
+      "rows": 7375,
+      "added": 7375,
+      "date_range_utc": [
+        "2019-09-10T08:00:00+00:00",
+        "2026-06-03T08:00:00+00:00"
+      ],
+      "sha256": "50a712a225ff9106bb5842eabd0dcf90649041097d1ddd46e5b36cfcbcc5cb56",
+      "schema": "funding_time_ms,funding_rate"
+    },
+    "ETHUSDT_1d.csv": {
+      "rows": 2380,
+      "added": 2380,
+      "date_range_utc": [
+        "2019-11-27T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "sha256": "e7541a35fa2b78ce12c99ae3c0426a77c7f32180d6302018bc51774c8d21fd27",
+      "schema": "open_time_ms,close_time_ms,open,high,low,close,volume"
+    },
+    "ETHUSDT_funding.csv": {
+      "rows": 7141,
+      "added": 7141,
+      "date_range_utc": [
+        "2019-11-27T08:00:00+00:00",
+        "2026-06-03T08:00:00+00:00"
+      ],
+      "sha256": "2d8deab9e2869fc2f8de9b874db118e4220e2c6146fd6214756ae9d4ae847b47",
+      "schema": "funding_time_ms,funding_rate"
+    },
+    "SOLUSDT_1d.csv": {
+      "rows": 2088,
+      "added": 2088,
+      "date_range_utc": [
+        "2020-09-14T00:00:00+00:00",
+        "2026-06-02T00:00:00+00:00"
+      ],
+      "sha256": "cff53914d82f8fe39d26ae205cd0c432c26165cee3d41bf90783449404cad757",
+      "schema": "open_time_ms,close_time_ms,open,high,low,close,volume"
+    },
+    "SOLUSDT_funding.csv": {
+      "rows": 6342,
+      "added": 6342,
+      "date_range_utc": [
+        "2020-09-13T16:00:00.004000+00:00",
+        "2026-06-03T08:00:00+00:00"
+      ],
+      "sha256": "beb99faa7748f3bd60aefcdcad9b25b2ea789269b47961bb7a723fec816849b0",
+      "schema": "funding_time_ms,funding_rate"
+    }
+  }
+}
